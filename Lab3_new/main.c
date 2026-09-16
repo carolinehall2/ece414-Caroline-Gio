@@ -60,11 +60,7 @@ void game_tick() {
         // if left person serves
         case SERVE_LEFT:
             count = 7; // Set ball position to the far left LED (LED 7)
-<<<<<<< HEAD
             led_out_write(count); // Turn on LED 7
-=======
-            led_out_write(1 << count); // Turn on LED 7
->>>>>>> 3a516ae8b9816fb6b0a555bf9ec8f2c03e971036
             if(BL == true){ // If left player presses their button
                 Pong_State = BALL_MOVING_RIGHT; // Change game state to moving right
                 t_last = t_now; // Reset the timer
