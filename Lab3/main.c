@@ -89,11 +89,11 @@ void game_tick() {
                     if (increment > 100) increment -= 20; // Make faster by decreasing the delay
                 }
                 else if(count == 7 && BR == false){ // If ball reaches the end and button is not pressed
-                    printf("Player R lost\n"); // Print message over UART
+                   
                     Pong_State = FLASH_WINNER_LEFT; // Change state to flash the winner's LED
                 }
                 else if(count != 7 && BR == true){ // If button is pressed early (before the ball arrives)
-                    printf("Player R lost\n"); // Print message over UART
+                   
                     Pong_State = FLASH_WINNER_LEFT; // Change state to flash the winner's LED
                 }
             }
@@ -111,11 +111,10 @@ void game_tick() {
                     if (increment > 100) increment -= 20; // Make faster by decreasing the delay
                 }
                 else if(count == 0 && BL == false){ // If ball reaches the end and button is not pressed
-                    printf("Player L lost\n"); // Print message over UART
+                
                     Pong_State = FLASH_WINNER_RIGHT; // Change state to flash the winner's LED
                 }
                 else if(count != 0 && BL == true){ // If button is pressed early 
-                    printf("Player L lost\n"); // Print message over UART
                     Pong_State = FLASH_WINNER_RIGHT; // Change state to flash the winner's LED
                 }
             }
@@ -150,7 +149,6 @@ void game_tick() {
         }
     }
 }
-c
 // The main program start point
 int main() {
     stdio_init_all();
