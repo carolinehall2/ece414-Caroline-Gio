@@ -39,7 +39,10 @@ void draw_ui() {
     }
 }
 
+<<<<<<< HEAD
 // button layout and hitboxs
+=======
+>>>>>>> 3dd5b27901abd820a15eec404c6d5a48a10e32cc
 char get_button_pressed(uint16_t x, uint16_t y) {
     //row 1
     if (y > 50 && y < 93) {
@@ -97,7 +100,10 @@ int main() {
         
         if (currently_touched && !touched_last_frame) {//debouce
             
+<<<<<<< HEAD
             // translate from portrait to landscape
+=======
+>>>>>>> 3dd5b27901abd820a15eec404c6d5a48a10e32cc
             uint16_t mapped_x = 319 - raw_y;
             uint16_t mapped_y = raw_x; 
 
