@@ -38,7 +38,6 @@ void draw_ui() {
     }
 }
 
-// Reverted to your strict hitboxes to filter out noise jumps
 char get_button_pressed(uint16_t x, uint16_t y) {
     if (y > 50 && y < 93) {
         if (x > 6 && x < 78) return '1';
@@ -92,7 +91,6 @@ int main() {
         
         if (currently_touched && !touched_last_frame) {
             
-            // Retained the coordinate translation so buttons match
             uint16_t mapped_x = 319 - raw_y;
             uint16_t mapped_y = raw_x; 
 
@@ -162,7 +160,6 @@ int main() {
         
         touched_last_frame = currently_touched;
         
-        // Fast enough to not miss quick finger taps, slow enough to prevent SPI crashes
         sleep_ms(20); 
     }
 }
