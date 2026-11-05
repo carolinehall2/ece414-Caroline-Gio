@@ -2,27 +2,42 @@
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
 
+#define AUDIO_PIN 26
+#define AUDIO_CHANNEL 0
+
 int main() {
     stdio_init_all();
 
-    // Initialize ADC
     adc_init();
-    adc_gpio_init(26);
-    adc_select_input(0); // ADC0 (GPIO 26)
 
-    uint32_t last_tick_10ms = 0;
+    adc_gpio_init(AUDIO_PIN);
+    adc_select_input(AUDIO_CHANNEL);
 
-    while (1) {
-        uint32_t now = time_us_32();
+    sleep_ms(2000);
 
-        // 10 ms task: sample potentiometer
-        if (now - last_tick_10ms >= 10000) {
-            last_tick_10ms = now;
+    printf("Starting Audio Input Test... /n");
 
-            uint16_t raw = adc_read(); // 0 to 4095
-            float percentage = (raw / 4095.0f) * 100.0f;
+    while(true){
+        uint16_t min_value = 4095;
+        uint16_t max_value = 0;
 
-            printf("Potentiometer Raw: %4d | Level: %5.1f%%\n", raw, percentage);
+        for (int i = 0; i < 1000; i++){
+            uint16_t sample = adc_read();
+
+            if(sample < min_value){
+                min_value = sample;
+            }
+
+            if(sample > max_value){
+                max_value = sample;
+            }
+            sleep_us(125);
         }
+
+        uint16_t audio_level = max_value - min_value;
+
+        printf("MIN: %u | MAX: %u | AUDIO LEVEL: %u \n", min_value, max_value, audio_level);
+
+        sleep_ms(100);
     }
 }
