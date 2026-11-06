@@ -1,43 +1,51 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include "hardware/adc.h"
+#include "hardware/i2c.h"
 
-#define AUDIO_PIN 26
-#define AUDIO_CHANNEL 0
+#define I2C_PORT i2c0
+#define SDA_PIN 4
+#define SCL_PIN 5
+#define WM8960_ADDR 0x1A
 
-int main() {
+int main(void) {
+
     stdio_init_all();
 
-    adc_init();
+    // Initialize I2C at 100 kHz
+    i2c_init(I2C_PORT, 100000);
 
-    adc_gpio_init(AUDIO_PIN);
-    adc_select_input(AUDIO_CHANNEL);
+    // Configure I2C pins
+    gpio_set_function(SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(SCL_PIN, GPIO_FUNC_I2C);
+
+    gpio_pull_up(SDA_PIN);
+    gpio_pull_up(SCL_PIN);
 
     sleep_ms(2000);
 
-    printf("Starting Audio Input Test... /n");
+    printf("Starting WM8960 Detection Test...\n");
 
-    while(true){
-        uint16_t min_value = 4095;
-        uint16_t max_value = 0;
+    while (true) {
 
-        for (int i = 0; i < 1000; i++){
-            uint16_t sample = adc_read();
+        // Test communication with WM8960
+        uint8_t data[2] = {0x1E, 0x00};
 
-            if(sample < min_value){
-                min_value = sample;
-            }
+        int result = i2c_write_timeout_us(
+            I2C_PORT,
+            WM8960_ADDR,
+            data,
+            2,
+            false,
+            100000
+        );
 
-            if(sample > max_value){
-                max_value = sample;
-            }
-            sleep_us(125);
+        if (result == 2) {
+            printf("WM8960 DETECTED at address 0x1A!\n");
+        }
+        else {
+            printf("WM8960 NOT DETECTED (result: %d)\n", result);
         }
 
-        uint16_t audio_level = max_value - min_value;
-
-        printf("MIN: %u | MAX: %u | AUDIO LEVEL: %u \n", min_value, max_value, audio_level);
-
-        sleep_ms(100);
+        sleep_ms(2000);
     }
 }
