@@ -10,6 +10,7 @@ add_executable(dj_board)
 
 # Generate the header for PIO SPI display routines
 pico_generate_pio_header(dj_board ${CMAKE_CURRENT_LIST_DIR}/SPIPIO.pio)
+pico_generate_pio_header(dj_board ${CMAKE_CURRENT_LIST_DIR}/audio_i2s.pio)
 
 target_sources(dj_board PRIVATE 
     main.c       
@@ -27,7 +28,9 @@ target_link_libraries(dj_board PRIVATE
     hardware_adc 
     hardware_gpio 
     hardware_pio 
-    hardware_irq    
+    hardware_irq
+    hardware_i2c 
+    hardware_clocks   
     pico_bootsel_via_double_reset
 )
 
