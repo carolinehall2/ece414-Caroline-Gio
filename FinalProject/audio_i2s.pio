@@ -1,0 +1,16 @@
+.program audio_i2s_swapped 
+.side_set 2
+
+bitloop1:
+    out pins, 1 side 0b01
+    jmp x-- bitloop1 side 0b11
+    out pins, 1 side 0b00
+    set x, 14 side 0b10
+
+bitloop0: 
+    out pins, 1 side 0b00
+    jmp x-- bitloop0 side 0b10
+    out pins, 1 side 0b01
+
+public entry_point:
+    set x, 14 side 0b11
