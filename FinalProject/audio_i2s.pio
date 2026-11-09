@@ -1,16 +1,16 @@
-.program audio_i2s_swapped 
+; 16-bit stereo LEFT-JUSTIFIED serial audio output.
+; Sideset pins: GP10 = BCLK (bit 0), GP11 = LRCLK (bit 1)
+; OUT pin:      GP12 = DACDAT
+; Every frame takes 66 PIO instructions: 16 bits x 2 cycles x 2 + 2 setup cycles.
+.program audio_i2s_tx
 .side_set 2
-
-bitloop1:
-    out pins, 1 side 0b01
-    jmp x-- bitloop1 side 0b11
-    out pins, 1 side 0b00
-    set x, 14 side 0b10
-
-bitloop0: 
-    out pins, 1 side 0b00
-    jmp x-- bitloop0 side 0b10
-    out pins, 1 side 0b01
-
-public entry_point:
-    set x, 14 side 0b11
+.wrap_target
+    set x, 15        side 0b00   ; left channel, BCLK low
+left_bit:
+    out pins, 1      side 0b00   ; output next bit on falling/low BCLK
+    jmp x-- left_bit side 0b01   ; rising BCLK latches it
+    set x, 15        side 0b10   ; right channel, BCLK low
+right_bit:
+    out pins, 1      side 0b10
+    jmp x-- right_bit side 0b11
+.wrap
