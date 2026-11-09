@@ -1,51 +1,28 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include "hardware/i2c.h"
-
-#define I2C_PORT i2c0
-#define SDA_PIN 4
-#define SCL_PIN 5
-#define WM8960_ADDR 0x1A
+#include "knob_fsm.h"
 
 int main(void) {
-
     stdio_init_all();
+    knob_fsm_init();
 
-    // Initialize I2C at 100 kHz
-    i2c_init(I2C_PORT, 100000);
+    uint32_t last_tick = 0;
+    uint32_t last_print = 0;
 
-    // Configure I2C pins
-    gpio_set_function(SDA_PIN, GPIO_FUNC_I2C);
-    gpio_set_function(SCL_PIN, GPIO_FUNC_I2C);
+    while (1) {
+        uint32_t now = time_us_32();
 
-    gpio_pull_up(SDA_PIN);
-    gpio_pull_up(SCL_PIN);
-
-    sleep_ms(2000);
-
-    printf("Starting WM8960 Detection Test...\n");
-
-    while (true) {
-
-        // Test communication with WM8960
-        uint8_t data[2] = {0x1E, 0x00};
-
-        int result = i2c_write_timeout_us(
-            I2C_PORT,
-            WM8960_ADDR,
-            data,
-            2,
-            false,
-            100000
-        );
-
-        if (result == 2) {
-            printf("WM8960 DETECTED at address 0x1A!\n");
-        }
-        else {
-            printf("WM8960 NOT DETECTED (result: %d)\n", result);
+        // Tick Knob FSM every 10 ms 
+        if (now - last_tick >= 10000) {
+            last_tick = now;
+            knob_fsm_tick();
         }
 
-        sleep_ms(2000);
+        // Print values every 100 ms
+        if (now - last_print >= 100000) {
+            last_print = now;
+            printf("VOL: %4d | BASS: %4d | MID: %4d | TREBLE: %4d\n",
+                   volume_val, bass_val, mid_val, treble_val);
+        }
     }
 }
