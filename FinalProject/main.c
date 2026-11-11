@@ -1,103 +1,61 @@
 
-/*
- * Raspberry Pi Pico DJ Board
- * Mono AUX -> RP2040 ADC -> WM8960 speakers
- *
- * GP26: Analog audio input
- * GP4:  I2C SDA
- * GP5:  I2C SCL
- * GP10: I2S BCLK
- * GP11: I2S LRCLK
- * GP12: I2S DAC data
- *
- * Initial audio pass-through test.
- * Knob FSM temporarily disabled.
- */
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
 
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
-#include "hardware/adc.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
 #include "hardware/pio_instructions.h"
-
 #include "audio_i2s.pio.h"
 
-// Configuration
-#define WM8960_ADDR     0x1A
-#define SAMPLE_RATE     48000
+#define WM8960_ADDR 0x1A
+#define SAMPLE_RATE 48000
 
-#define ADC_GPIO        26
-#define ADC_CHANNEL     0
+// Change these ONLY if your actual wiring differs.
+#define SDA_PIN 4
+#define SCL_PIN 5
 
-#define I2C_SDA_PIN     4
-#define I2C_SCL_PIN     5
+#define BCLK_PIN 10
+#define LRCLK_PIN 11
+#define DATA_PIN 12
 
-#define I2S_BCLK_PIN    10
-#define I2S_LRCLK_PIN   11
-#define I2S_DATA_PIN    12
-
-// Start with low digital gain
-#define ADC_GAIN        2
-
-// DC offset tracking
-#define DC_TRACK_SHIFT  12
-
-static int32_t dc_estimate = (2048 << DC_TRACK_SHIFT);
-
-// ------------------------------------------------
-// WM8960 Register Write
-// ------------------------------------------------
-
-static bool wm_write(uint8_t reg, uint16_t value) {
-
-    uint8_t bytes[2] = {
-        (uint8_t)((reg << 1) | ((value >> 8) & 1)),
-        (uint8_t)(value & 0xFF)
+static bool wm_write(uint8_t reg, uint16_t val) {
+    uint8_t data[2] = {
+        (uint8_t)((reg << 1) | ((val >> 8) & 1)),
+        (uint8_t)(val & 0xFF)
     };
 
     int result = i2c_write_timeout_us(
-        i2c0,
-        WM8960_ADDR,
-        bytes,
-        2,
-        false,
-        100000
+        i2c0, WM8960_ADDR,
+        data, 2, false, 100000
     );
 
     if (result != 2) {
-        printf("WM8960 register %u failed: %d\n",
+        printf("FAIL: register %u, result %d\n",
                reg, result);
+        fflush(stdout);
         return false;
     }
 
     return true;
 }
 
-#define W(reg,val) \
-    do { if (!wm_write((reg),(val))) return false; } while (0)
-
-// ------------------------------------------------
-// WM8960 Initialization
-// ------------------------------------------------
+#define W(reg, val) \
+    do { if (!wm_write(reg, val)) return false; } while (0)
 
 static bool wm_init(void) {
+    // Existing WM8960 initialization sequence.
+    // Clock settings still require hardware verification.
 
-    // Reset
     W(15, 0x000);
     sleep_ms(20);
 
-    // Reference voltage and VMID
     W(25, 0x1C0);
     sleep_ms(100);
     W(25, 0x0C0);
 
-    // Existing board PLL settings:
-    // 24 MHz MCLK
     W(52, 0x038);
     W(53, 0x031);
     W(54, 0x026);
@@ -106,29 +64,21 @@ static bool wm_init(void) {
     W(26, 0x001);
     sleep_ms(15);
 
-    // Clocking
     W(4, 0x005);
-
-    // 16-bit standard I2S, codec in slave mode
     W(7, 0x002);
-
     W(8, 0x1C0);
 
-    // DAC controls
     W(5, 0x000);
     W(10, 0x0FF);
     W(11, 0x1FF);
 
-    // Route DAC to output mixers
     W(34, 0x100);
     W(37, 0x100);
 
-    // Speaker output controls
     W(47, 0x018);
     W(40, 0x070);
     W(41, 0x170);
 
-    // Enable output stages
     W(26, 0x199);
     sleep_ms(100);
 
@@ -139,199 +89,132 @@ static bool wm_init(void) {
 
 #undef W
 
-// ------------------------------------------------
-// Initialize Pico ADC
-// ------------------------------------------------
-
-static void setup_adc(void) {
-
-    adc_init();
-
-    adc_gpio_init(ADC_GPIO);
-
-    adc_select_input(ADC_CHANNEL);
-
-    // Initialize DC tracking from actual input
-    int32_t sum = 0;
-
-    for (int i = 0; i < 256; i++) {
-        sum += adc_read();
-    }
-
-    dc_estimate = (sum / 256) << DC_TRACK_SHIFT;
-}
-
-// ------------------------------------------------
-// Initialize PIO I2S
-// ------------------------------------------------
-
 static void setup_i2s(PIO pio, uint sm) {
-
     uint offset = pio_add_program(
-        pio,
-        &audio_i2s_swapped_program
+        pio, &audio_i2s_swapped_program
     );
 
-    pio_sm_config config =
+    pio_sm_config c =
         audio_i2s_swapped_program_get_default_config(offset);
 
-    pio_gpio_init(pio, I2S_BCLK_PIN);
-    pio_gpio_init(pio, I2S_LRCLK_PIN);
-    pio_gpio_init(pio, I2S_DATA_PIN);
+    pio_gpio_init(pio, BCLK_PIN);
+    pio_gpio_init(pio, LRCLK_PIN);
+    pio_gpio_init(pio, DATA_PIN);
 
-    pio_sm_set_consecutive_pindirs(
-        pio,
-        sm,
-        I2S_BCLK_PIN,
-        3,
-        true
-    );
-
-    sm_config_set_sideset_pins(
-        &config,
-        I2S_BCLK_PIN
-    );
-
-    sm_config_set_out_pins(
-        &config,
-        I2S_DATA_PIN,
-        1
-    );
-
-    sm_config_set_out_shift(
-        &config,
-        false,
-        true,
-        32
-    );
-
-    sm_config_set_fifo_join(
-        &config,
-        PIO_FIFO_JOIN_TX
-    );
+    sm_config_set_sideset_pins(&c, BCLK_PIN);
+    sm_config_set_out_pins(&c, DATA_PIN, 1);
+    sm_config_set_out_shift(&c, false, true, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 
     float divider =
         (float)clock_get_hz(clk_sys) /
         (SAMPLE_RATE * 66.0f);
 
-    sm_config_set_clkdiv(&config, divider);
+    sm_config_set_clkdiv(&c, divider);
 
-    pio_sm_init(pio, sm, offset, &config);
+    pio_sm_init(pio, sm, offset, &c);
 
-    // Start at the PIO entry point, not the
-    // first instruction of the bit loop.
+    pio_sm_set_consecutive_pindirs(
+        pio, sm, BCLK_PIN, 3, true
+    );
+
     pio_sm_exec(
-        pio,
-        sm,
+        pio, sm,
         pio_encode_jmp(
-            offset +
-            audio_i2s_swapped_offset_entry_point
+            offset + audio_i2s_swapped_offset_entry_point
         )
     );
 }
 
-// ------------------------------------------------
-// Audio sample processing
-// ------------------------------------------------
-
-static inline int16_t process_audio(uint16_t raw) {
-
-    // Slowly track the ADC DC bias.
-    int32_t target =
-        ((int32_t)raw << DC_TRACK_SHIFT);
-
-    dc_estimate +=
-        (target - dc_estimate) >> DC_TRACK_SHIFT;
-
-    // Remove the DC component.
-    int32_t centered =
-        (target - dc_estimate) >> DC_TRACK_SHIFT;
-
-    // Convert 12-bit magnitude to 16-bit
-    // audio and apply modest digital gain.
-    int32_t sample =
-        centered * 16 * ADC_GAIN;
-
-    // Clamp to prevent digital overflow.
-    if (sample > 16000) sample = 16000;
-    if (sample < -16000) sample = -16000;
-
-    return (int16_t)sample;
-}
-
-// ------------------------------------------------
-// Main
-// ------------------------------------------------
-
 int main(void) {
-
     stdio_init_all();
-
     sleep_ms(2000);
 
-    printf("Starting DJ Board Audio Test...\n");
+    printf("STARTING WM8960 SPEAKER TEST\n");
+    fflush(stdout);
 
-    // I2C setup
     i2c_init(i2c0, 100000);
 
-    gpio_set_function(
-        I2C_SDA_PIN,
-        GPIO_FUNC_I2C
-    );
+    gpio_set_function(SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(SCL_PIN, GPIO_FUNC_I2C);
 
-    gpio_set_function(
-        I2C_SCL_PIN,
-        GPIO_FUNC_I2C
-    );
+    gpio_pull_up(SDA_PIN);
+    gpio_pull_up(SCL_PIN);
 
-    gpio_pull_up(I2C_SDA_PIN);
-    gpio_pull_up(I2C_SCL_PIN);
+    printf("I2C configured on GP%d/GP%d\n",
+           SDA_PIN, SCL_PIN);
+    fflush(stdout);
 
-    // ADC setup
-    setup_adc();
+    printf("Initializing WM8960...\n");
+    fflush(stdout);
 
-    // WM8960 setup
-    if (!wm_init()) {
+    bool codec_ready = wm_init();
+
+    if (!codec_ready) {
         while (true) {
-            printf("WM8960 initialization FAILED\n");
+            printf("ERROR: WM8960 initialization failed\n");
+            fflush(stdout);
             sleep_ms(2000);
         }
     }
 
-    printf("WM8960 initialized\n");
+    printf("WM8960 register writes successful\n");
+    fflush(stdout);
 
-    // I2S setup
     PIO pio = pio0;
     uint sm = pio_claim_unused_sm(pio, true);
 
     setup_i2s(pio, sm);
 
-    // Prime the I2S output with silence
+    // Queue silence before starting.
     pio_sm_put_blocking(pio, sm, 0);
     pio_sm_put_blocking(pio, sm, 0);
 
     pio_sm_set_enabled(pio, sm, true);
 
-    printf("Starting mono audio pass-through\n");
+    printf("I2S enabled: GP10/GP11/GP12\n");
     fflush(stdout);
 
-    // Continuous audio processing loop
+    uint32_t phase = 0;
+    const uint32_t phase_step = 39370534u;
+
+    uint32_t frames_sent = 0;
+    uint32_t last_print = time_us_32();
+
     while (true) {
+        // Nonblocking FIFO check keeps diagnostics alive.
+        if (!pio_sm_is_tx_fifo_full(pio, sm)) {
+            phase += phase_step;
 
-        // Read analog music from phone
-        uint16_t raw = adc_read();
+            uint32_t position = phase >> 16;
+            int32_t triangle;
 
-        // Process audio
-        int16_t sample = process_audio(raw);
+            if (position < 32768) {
+                triangle = (int32_t)position - 16384;
+            } else {
+                triangle = 49152 - (int32_t)position;
+            }
 
-        // Duplicate mono sample to both channels
-        uint16_t audio16 = (uint16_t)sample;
+            // Low-amplitude tone for initial testing.
+            int16_t sample = (int16_t)(triangle / 8);
+            uint16_t audio = (uint16_t)sample;
 
-        uint32_t stereo =
-            ((uint32_t)audio16 << 16) |
-            (uint32_t)audio16;
+            uint32_t stereo =
+                ((uint32_t)audio << 16) | audio;
 
-        // Send one stereo frame
-        pio_sm_put_blocking(pio, sm, stereo);
+            pio_sm_put(pio, sm, stereo);
+            frames_sent++;
+        }
+
+        uint32_t now = time_us_32();
+
+        if ((uint32_t)(now - last_print) >= 2000000) {
+            last_print = now;
+
+            printf("AUDIO RUNNING | Frames: %lu | TX FIFO: %u\n",
+                   (unsigned long)frames_sent,
+                   pio_sm_get_tx_fifo_level(pio, sm));
+            fflush(stdout);
+        }
     }
 }
