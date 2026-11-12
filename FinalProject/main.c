@@ -78,8 +78,10 @@ static bool wm_init(void) {
     W(47, 0x018);
     W(40, 0x070);
     W(41, 0x170);
+    W(2, 0x060);   // Left headphone volume
+    W(3, 0x160);   // Right headphone volume + update
 
-    W(26, 0x199);
+    W(26, 0x1F9);
     sleep_ms(100);
 
     W(49, 0x0F7);
