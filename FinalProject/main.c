@@ -13,7 +13,6 @@
 #define WM8960_ADDR 0x1A
 #define SAMPLE_RATE 48000
 
-// Change these ONLY if your actual wiring differs.
 #define SDA_PIN 4
 #define SCL_PIN 5
 
@@ -45,9 +44,7 @@ static bool wm_write(uint8_t reg, uint16_t val) {
 #define W(reg, val) \
     do { if (!wm_write(reg, val)) return false; } while (0)
 
-static bool wm_init(void) {
-    // Existing WM8960 initialization sequence.
-    // Clock settings still require hardware verification.
+static bool wm_init(void) 
 
     W(15, 0x000);
     sleep_ms(20);
@@ -79,7 +76,7 @@ static bool wm_init(void) {
     W(40, 0x070);
     W(41, 0x170);
     W(2, 0x060);   // Left headphone volume
-    W(3, 0x160);   // Right headphone volume + update
+    W(3, 0x160);   // Right headphone volume
 
     W(26, 0x1F9);
     sleep_ms(100);
@@ -184,7 +181,6 @@ int main(void) {
     uint32_t last_print = time_us_32();
 
     while (true) {
-        // Nonblocking FIFO check keeps diagnostics alive.
         if (!pio_sm_is_tx_fifo_full(pio, sm)) {
             phase += phase_step;
 
@@ -196,8 +192,7 @@ int main(void) {
             } else {
                 triangle = 49152 - (int32_t)position;
             }
-
-            // Low-amplitude tone for initial testing.
+            
             int16_t sample = (int16_t)(triangle / 8);
             uint16_t audio = (uint16_t)sample;
 
