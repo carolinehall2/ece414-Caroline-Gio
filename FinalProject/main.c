@@ -62,13 +62,13 @@ static bool wm_init(void) {
     sleep_ms(15);
 
     W(4, 0x005);
-    W(7, 0x002);
+    W(7, 0x022);
     W(8, 0x1C0);
 
     W(5, 0x000);
     W(10, 0x0FF);
     W(11, 0x1FF);
-    W(23, 0x1D0);
+    
 
     // Route DAC audio to output mixers
     W(34, 0x100);
@@ -218,8 +218,12 @@ while (true) {
 
     uint32_t stereo;
 
-    stereo = ((uint32_t)audio << 16) | audio;
+if (left_channel) {
+    stereo = (uint32_t)audio << 16;
+} else {
+    stereo = (uint32_t)audio;
+}
 
-    pio_sm_put_blocking(pio, sm, stereo);
+pio_sm_put_blocking(pio, sm, stereo);
 }
 }
