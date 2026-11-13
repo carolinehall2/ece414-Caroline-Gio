@@ -183,44 +183,48 @@ int main(void) {
     printf("I2S enabled: GP10/GP11/GP12\n");
     fflush(stdout);
 
-    uint32_t phase = 0;
-    const uint32_t phase_step = 39370534u;
+   uint32_t phase = 0;
+const uint32_t phase_step = 39370534u;
 
-    uint32_t frames_sent = 0;
-    uint32_t last_print = time_us_32();
+uint32_t last_switch = time_us_32();
+bool left_channel = true;
 
-    while (true) {
-        if (!pio_sm_is_tx_fifo_full(pio, sm)) {
-            phase += phase_step;
+while (true) {
 
-            uint32_t position = phase >> 16;
-            int32_t triangle;
+    uint32_t now = time_us_32();
 
-            if (position < 32768) {
-                triangle = (int32_t)position - 16384;
-            } else {
-                triangle = 49152 - (int32_t)position;
-            }
-            
-            int16_t sample = (int16_t)(triangle / 8);
-            uint16_t audio = (uint16_t)sample;
-
-            uint32_t stereo =
-                ((uint32_t)audio << 16) | audio;
-
-            pio_sm_put(pio, sm, stereo);
-            frames_sent++;
-        }
-
-        uint32_t now = time_us_32();
-
-        if ((uint32_t)(now - last_print) >= 2000000) {
-            last_print = now;
-
-            printf("AUDIO RUNNING | Frames: %lu | TX FIFO: %u\n",
-                   (unsigned long)frames_sent,
-                   pio_sm_get_tx_fifo_level(pio, sm));
-            fflush(stdout);
-        }
+    // Switch speakers every 3 seconds
+    if (now - last_switch >= 3000000u) {
+        last_switch = now;
+        left_channel = !left_channel;
     }
+
+    // Generate a 440 Hz test tone
+    phase += phase_step;
+
+    uint32_t position = phase >> 16;
+
+    int32_t triangle;
+
+    if (position < 32768) {
+        triangle = (int32_t)position - 16384;
+    } else {
+        triangle = 49152 - (int32_t)position;
+    }
+
+    int16_t sample = (int16_t)(triangle / 4);
+    uint16_t audio = (uint16_t)sample;
+
+    uint32_t stereo;
+
+    if (left_channel) {
+        // Left channel only
+        stereo = (uint32_t)audio << 16;
+    } else {
+        // Right channel only
+        stereo = (uint32_t)audio;
+    }
+
+    pio_sm_put_blocking(pio, sm, stereo);
+}
 }
