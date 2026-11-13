@@ -1,20 +1,20 @@
-.program audio_i2s_swapped
+.program audio_i2s
 .side_set 2
 
-; BCLK = first side-set pin (GP10)
-; LRCLK = second side-set pin (GP11)
-; DAC data = GP12
+; GP10 = BCLK
+; GP11 = LRCLK
+; GP12 = DATA
 
 bitloop1:
-    out pins, 1 side 0b01
+    out pins, 1 side 0b10
     jmp x-- bitloop1 side 0b11
     out pins, 1 side 0b00
-    set x, 14 side 0b10
+    set x, 14 side 0b01
 
 bitloop0:
     out pins, 1 side 0b00
-    jmp x-- bitloop0 side 0b10
-    out pins, 1 side 0b01
+    jmp x-- bitloop0 side 0b01
+    out pins, 1 side 0b10
 
 public entry_point:
     set x, 14 side 0b11
