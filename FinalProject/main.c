@@ -90,11 +90,11 @@ static bool wm_init(void)
 
 static void setup_i2s(PIO pio, uint sm) {
     uint offset = pio_add_program(
-        pio, &audio_i2s_swapped_program
+        pio, &audio_i2s_program
     );
 
     pio_sm_config c =
-        audio_i2s_swapped_program_get_default_config(offset);
+        audio_i2s_program_get_default_config(offset);
 
     pio_gpio_init(pio, BCLK_PIN);
     pio_gpio_init(pio, LRCLK_PIN);
@@ -107,7 +107,7 @@ static void setup_i2s(PIO pio, uint sm) {
 
     float divider =
         (float)clock_get_hz(clk_sys) /
-        (SAMPLE_RATE * 66.0f);
+        (SAMPLE_RATE * 64.0f);
 
     sm_config_set_clkdiv(&c, divider);
 
@@ -120,7 +120,7 @@ static void setup_i2s(PIO pio, uint sm) {
     pio_sm_exec(
         pio, sm,
         pio_encode_jmp(
-            offset + audio_i2s_swapped_offset_entry_point
+            offset + audio_i2s_offset_entry_point
         )
     );
 }
