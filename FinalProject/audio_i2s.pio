@@ -4,12 +4,13 @@
 ; GP10 = BCLK
 ; GP11 = LRCLK
 ; GP12 = DATA
+; 32-bit slots for each channel
 
 bitloop1:
     out pins, 1 side 0b10
     jmp x-- bitloop1 side 0b11
     out pins, 1 side 0b00
-    set x, 14 side 0b01
+    set x, 30 side 0b01
 
 bitloop0:
     out pins, 1 side 0b00
@@ -17,4 +18,5 @@ bitloop0:
     out pins, 1 side 0b10
 
 public entry_point:
-    set x, 14 side 0b11
+    set x, 30 side 0b11
+
