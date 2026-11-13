@@ -44,7 +44,7 @@ static bool wm_write(uint8_t reg, uint16_t val) {
 #define W(reg, val) \
     do { if (!wm_write(reg, val)) return false; } while (0)
 
-static bool wm_init(void) 
+static bool wm_init(void) {
 
     W(15, 0x000);
     sleep_ms(20);
@@ -69,22 +69,31 @@ static bool wm_init(void)
     W(10, 0x0FF);
     W(11, 0x1FF);
 
+    // Route DAC audio to output mixers
     W(34, 0x100);
     W(37, 0x100);
 
+    // Enable left and right output mixers
     W(47, 0x018);
+
+    // Original four-wire speaker volume
     W(40, 0x070);
     W(41, 0x170);
-    W(2, 0x060);   // Left headphone volume
-    W(3, 0x160);   // Right headphone volume
 
+    // UPDATED: Headphone/AUX output volume
+    W(2, 0x079);
+    W(3, 0x179);
+
+    // Enable DACs, headphones, speakers, PLL
     W(26, 0x1F9);
     sleep_ms(100);
 
+    // Enable Class D speaker amplifiers
     W(49, 0x0F7);
 
     return true;
 }
+
 
 #undef W
 
