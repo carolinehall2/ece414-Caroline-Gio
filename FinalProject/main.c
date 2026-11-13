@@ -1,184 +1,336 @@
-// Mono AUX input -> RP2040 ADC0 -> WM8960 stereo speakers.
-// First pass-through prototype: ADC sampled in a PIO-paced loop (no DMA).
-// PIO left-justified 16-bit stereo, 48 kHz, GP10=BCLK, GP11=LRCLK, GP12=DACDAT.
-// I2C0 GP4=SDA, GP5=SCL. Waveshare HAT supplies a 24 MHz MCLK oscillator.
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
-#include "hardware/adc.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
+#include "hardware/pio_instructions.h"
+#include "hardware/adc.h"
+
 #include "audio_i2s.pio.h"
 
+// ==========================================
+// PIN DEFINITIONS
+// ==========================================
 
-
-#define WM8960_ADDR 0x1a
+#define WM8960_ADDR 0x1A
 #define SAMPLE_RATE 48000
-#define ADC_GPIO 26
-#define ADC_CHANNEL 0
-// Digital gain on the AC component of the 12-bit input.
-// Start conservatively. Increase only after checking for distortion.
-#define ADC_GAIN 48
-// Smooth the slowly changing ADC bias: 2^12 samples ~85 ms at 48kHz.
-#define DC_TRACK_SHIFT 12
 
+#define SDA_PIN 4
+#define SCL_PIN 5
 
+#define BCLK_PIN 10
+#define LRCLK_PIN 11
+#define DATA_PIN 12
 
-// Two-byte WM8960 writes: 7-bit register number + 9-bit register value.
+#define AUDIO_INPUT_PIN 26
+#define AUDIO_ADC_CHANNEL 0
+
+#define AUDIO_GAIN 16
+
+// ==========================================
+// WM8960 REGISTER WRITE
+// ==========================================
+
 static bool wm_write(uint8_t reg, uint16_t val) {
-   uint8_t bytes[2] = {
-       (uint8_t)((reg << 1) | ((val >> 8) & 1)),
-       (uint8_t)(val & 0xff)
-   };
-   int sent = i2c_write_timeout_us(i2c0, WM8960_ADDR, bytes, 2, false, 100000);
-   if (sent != 2) {
-       printf("FAIL: register %u (0x%02X), I2C result %d\n", reg, reg, sent);
-       fflush(stdout);
-       return false;
-   }
-   return true;
+
+    uint8_t data[2] = {
+        (uint8_t)((reg << 1) | ((val >> 8) & 1)),
+        (uint8_t)(val & 0xFF)
+    };
+
+    int result = i2c_write_timeout_us(
+        i2c0,
+        WM8960_ADDR,
+        data,
+        2,
+        false,
+        100000
+    );
+
+    if (result != 2) {
+        printf("FAIL: register %u, result %d\n",
+               reg, result);
+
+        fflush(stdout);
+        return false;
+    }
+
+    return true;
 }
 
+#define W(reg, val) \
+    do { if (!wm_write(reg, val)) return false; } while (0)
 
+// ==========================================
+// WM8960 INITIALIZATION
+// ==========================================
 
-#define W(reg,val) do { if (!wm_write((reg),(val))) return false; } while (0)
 static bool wm_init(void) {
-   W(15, 0x000);     // software reset
-   sleep_ms(20);
-   W(25, 0x1C0);     // VMID fast start, enable VREF
-   sleep_ms(100);
-   W(25, 0x0C0);     // normal VMID, VREF still enabled
 
+    // Reset codec
+    W(15, 0x000);
+    sleep_ms(20);
 
+    // Enable reference voltage and VMID
+    W(25, 0x1C0);
+    sleep_ms(100);
+    W(25, 0x0C0);
 
-   // 24 MHz MCLK -> PLL prescale /2 -> 12 MHz.
-   // PLL N=8, K=0x3126E8 yields SYSCLK = 12.288 MHz.
-   W(52, 0x038);     // fractional mode, MCLK /2, N=8
-   W(53, 0x031);     // K[23:16]
-   W(54, 0x026);     // K[15:8]
-   W(55, 0x0E8);     // K[7:0]
-   W(26, 0x001);     // turn on PLL first
-   sleep_ms(15);
-   W(4,  0x005);     // Working speaker-test clock setting: PLL and SYSCLK divider
-   W(7,  0x001);     // SLAVE, 16-bit LEFT-JUSTIFIED (matches PIO)
-   W(8,  0x1C0);     // Working speaker-test Class-D clock setting
-   W(5,  0x000);     // DAC unmuted; no de-emphasis
-   W(10, 0x0FF);     // DAC L digital volume = 0 dB
-   W(11, 0x1FF);     // DAC R digital volume = 0 dB, update
-   W(34, 0x100);     // route left DAC to left output mixer
-   W(37, 0x100);     // route right DAC to right output mixer
-   W(47, 0x018);     // enable L and R output mixers
-   W(40, 0x060);     // speaker left low volume (-25 dB approx)
-   W(41, 0x160);     // speaker right low volume + update
-   W(26, 0x199);     // DAC L/R, speaker L/R, PLL power on
-   sleep_ms(100);
-   W(49, 0x0F7);     // enable both Class-D outputs; keep reserved bits
-   return true;
+    // Configure PLL
+    W(52, 0x038);
+    W(53, 0x031);
+    W(54, 0x026);
+    W(55, 0x0E8);
+
+    // Enable PLL
+    W(26, 0x001);
+    sleep_ms(15);
+
+    // Configure clocks and I2S format
+    W(4, 0x005);
+    W(7, 0x00A);  // 24-bit I2S
+    W(8, 0x1C0);
+
+    // Enable DAC audio
+    W(5, 0x000);
+
+    // Left and right DAC volume
+    W(10, 0x0FF);
+    W(11, 0x1FF);
+
+    // Route DAC audio to output mixers
+    W(34, 0x100);
+    W(37, 0x100);
+
+    // Enable left and right output mixers
+    W(47, 0x018);
+
+    // Four-wire speaker volume
+    W(40, 0x070);
+    W(41, 0x170);
+
+    // Headphone / AUX output volume
+    W(2, 0x079);
+    W(3, 0x179);
+
+    // Enable DACs, headphones, speakers and PLL
+    W(26, 0x1F9);
+    sleep_ms(100);
+
+    // Enable Class D speaker amplifiers
+    W(49, 0x0F7);
+
+    return true;
 }
+
 #undef W
 
-
+// ==========================================
+// I2S AUDIO OUTPUT
+// ==========================================
 
 static void setup_i2s(PIO pio, uint sm) {
-   uint offset = pio_add_program(pio, &audio_i2s_tx_program);
-   pio_sm_config c = audio_i2s_tx_program_get_default_config(offset);
-   pio_gpio_init(pio, 10); // BCLK
-   pio_gpio_init(pio, 11); // LRCLK
-   pio_gpio_init(pio, 12); // DACDAT
-   pio_sm_set_consecutive_pindirs(pio, sm, 10, 3, true);
-   sm_config_set_sideset_pins(&c, 10);
-   sm_config_set_out_pins(&c, 12, 1);
-   sm_config_set_out_shift(&c, false, true, 32);  // MSB-first; auto-pull 32 bits
-   sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
-   // 66 instructions per stereo frame (see audio_i2s.pio)
-   sm_config_set_clkdiv(&c, (float)clock_get_hz(clk_sys) / (SAMPLE_RATE * 66.0f));
-   pio_sm_init(pio, sm, offset, &c);
+
+    uint offset = pio_add_program(
+        pio, &audio_i2s_program
+    );
+
+    pio_sm_config c =
+        audio_i2s_program_get_default_config(offset);
+
+    // Initialize I2S pins
+    pio_gpio_init(pio, BCLK_PIN);
+    pio_gpio_init(pio, LRCLK_PIN);
+    pio_gpio_init(pio, DATA_PIN);
+
+    // Configure clocks and data pin
+    sm_config_set_sideset_pins(&c, BCLK_PIN);
+    sm_config_set_out_pins(&c, DATA_PIN, 1);
+
+    // Shift MSB first, pull 32 bits automatically
+    sm_config_set_out_shift(&c, false, true, 32);
+
+    // Join FIFO for transmission
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+    // 48 kHz, two 32-bit channel slots
+    float divider =
+        (float)clock_get_hz(clk_sys) /
+        (SAMPLE_RATE * 128.0f);
+
+    sm_config_set_clkdiv(&c, divider);
+
+    pio_sm_init(pio, sm, offset, &c);
+
+    pio_sm_set_consecutive_pindirs(
+        pio, sm, BCLK_PIN, 3, true
+    );
+
+    // Start from the I2S entry point
+    pio_sm_exec(
+        pio,
+        sm,
+        pio_encode_jmp(
+            offset + audio_i2s_offset_entry_point
+        )
+    );
 }
 
+// ==========================================
+// PHONE AUDIO INPUT
+// ==========================================
 
+static void setup_audio_input(void) {
 
-// Downmix the single analog AUX channel to both output speakers.
-// Remove the ~1.65V input bias with a slow-moving DC estimator.
-static uint32_t next_stereo(int32_t *dc_q8) {
-   uint16_t raw = adc_read();  // ADC0: 12-bit signal on GP26
-   int32_t sample_q8 = (int32_t)raw << 8;
-   *dc_q8 += (sample_q8 - *dc_q8) >> DC_TRACK_SHIFT;
-   int32_t centered = (sample_q8 - *dc_q8) >> 8;
-int32_t scaled = centered * ADC_GAIN;
+    adc_init();
 
+    // GP26 = ADC0
+    adc_gpio_init(AUDIO_INPUT_PIN);
+    adc_select_input(AUDIO_ADC_CHANNEL);
 
-
-   if (scaled > INT16_MAX) scaled = INT16_MAX;
-   if (scaled < INT16_MIN) scaled = INT16_MIN;
-   uint16_t mono = (uint16_t)(int16_t)scaled;
-   return ((uint32_t)mono << 16) | mono;
+    printf("Audio input configured on GP26\n");
+    fflush(stdout);
 }
 
-
+// ==========================================
+// MAIN PROGRAM
+// ==========================================
 
 int main(void) {
-   stdio_init_all();
-   sleep_ms(1500);
-   printf("WM8960 ADC-to-speakers passthrough starting...\n");
 
+    stdio_init_all();
+    sleep_ms(2000);
 
+    printf("STARTING PHONE AUDIO PLAYBACK\n");
+    fflush(stdout);
 
-   // Codec control (same I2C pins as the successful tests).
-   i2c_init(i2c0, 100000);
-   gpio_set_function(4, GPIO_FUNC_I2C);
-   gpio_set_function(5, GPIO_FUNC_I2C);
-   gpio_pull_up(4);
-   gpio_pull_up(5);
+    // --------------------------------------
+    // Initialize I2C
+    // --------------------------------------
 
+    i2c_init(i2c0, 100000);
 
+    gpio_set_function(SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(SCL_PIN, GPIO_FUNC_I2C);
 
-   // Mono AUX circuit: 1uF coupling capacitor, 1k series,
-   // two 10k bias resistors, with GP26 at the bias node.
-   adc_init();
-   adc_gpio_init(ADC_GPIO);
-   adc_select_input(ADC_CHANNEL);
-   int32_t dc_q8 = (int32_t)adc_read() << 8;
+    gpio_pull_up(SDA_PIN);
+    gpio_pull_up(SCL_PIN);
 
+    printf("I2C configured on GP%d/GP%d\n",
+           SDA_PIN, SCL_PIN);
 
+    fflush(stdout);
 
-   // Pico onboard LED blinks while audio is streaming.
-   gpio_init(PICO_DEFAULT_LED_PIN);
-   gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    // --------------------------------------
+    // Initialize WM8960
+    // --------------------------------------
 
+    printf("Initializing WM8960...\n");
+    fflush(stdout);
 
+    bool codec_ready = wm_init();
 
-   PIO pio = pio0;
-   uint sm = pio_claim_unused_sm(pio, true);
-   setup_i2s(pio, sm);
-   // Fill TX FIFO with silence before starting the codec.
-   for (int i = 0; i < 8; i++) {
-       pio_sm_put_blocking(pio, sm, 0);
-   }
-   pio_sm_set_enabled(pio, sm, true);
+    if (!codec_ready) {
 
+        while (true) {
 
+            printf("ERROR: WM8960 initialization failed\n");
+            fflush(stdout);
 
-   if (!wm_init()) {
-       printf("Codec initialization failed. Check I2C/power.\n");
-       while (true) sleep_ms(2000);
-   }
-   printf("Streaming GP26 ADC to stereo speakers (mono passthrough).\n");
-   fflush(stdout);
+            sleep_ms(2000);
+        }
+    }
 
+    printf("WM8960 register writes successful\n");
+    fflush(stdout);
 
+    // --------------------------------------
+    // Initialize phone audio input
+    // --------------------------------------
 
-   // The PIO's 48k frame rate paces these ADC conversions.
-   // Deliberately no printf in the audio loop: USB printing may cause clicks.
-   uint32_t frames = 0;
-   while (true) {
-       uint32_t stereo = next_stereo(&dc_q8);
-       pio_sm_put_blocking(pio, sm, stereo);
-       frames++;
-       if (frames == 24000) {  // toggle every ~0.5 s at 48 kHz
-           gpio_xor_mask(1u << PICO_DEFAULT_LED_PIN);
-           frames = 0;
-       }
-   }
+    setup_audio_input();
+
+    // Allow input voltage to settle
+    sleep_ms(100);
+
+    // Estimate initial DC bias
+    uint32_t bias_sum = 0;
+
+    for (int i = 0; i < 256; i++) {
+        bias_sum += adc_read();
+        sleep_us(20);
+    }
+
+    int32_t initial_bias = bias_sum / 256;
+
+    printf("ADC bias: %ld\n", (long)initial_bias);
+    fflush(stdout);
+
+    // Fixed-point DC tracking
+    int32_t dc_bias = initial_bias * 1024;
+
+    // --------------------------------------
+    // Initialize I2S output
+    // --------------------------------------
+
+    PIO pio = pio0;
+    uint sm = pio_claim_unused_sm(pio, true);
+
+    setup_i2s(pio, sm);
+
+    // Queue initial silence
+    pio_sm_put_blocking(pio, sm, 0);
+    pio_sm_put_blocking(pio, sm, 0);
+
+    // Start I2S
+    pio_sm_set_enabled(pio, sm, true);
+
+    printf("I2S enabled: GP10/GP11/GP12\n");
+    printf("PHONE AUDIO RUNNING\n");
+    fflush(stdout);
+
+    // ======================================
+    // REAL-TIME AUDIO LOOP
+    // ======================================
+
+    while (true) {
+
+        // Read analog audio from GP26
+        uint16_t raw = adc_read();
+
+        // Slowly track the DC bias
+        dc_bias +=
+            ((int32_t)raw * 1024 - dc_bias) / 1024;
+
+        // Remove DC bias to create signed audio
+        int32_t centered =
+            (int32_t)raw - (dc_bias / 1024);
+
+        // Amplify audio to 16-bit range
+        int32_t amplified = centered * AUDIO_GAIN;
+
+        // Prevent overflow and clipping wraparound
+        if (amplified > 32767) {
+            amplified = 32767;
+        }
+
+        if (amplified < -32768) {
+            amplified = -32768;
+        }
+
+        int16_t sample = (int16_t)amplified;
+
+        // Place audio into upper 16 bits
+        // of each 32-bit I2S slot
+        uint32_t audio_word =
+            ((uint32_t)(uint16_t)sample) << 16;
+
+        // Duplicate mono audio to both channels
+        pio_sm_put_blocking(pio, sm, audio_word);
+        pio_sm_put_blocking(pio, sm, audio_word);
+    }
 }
