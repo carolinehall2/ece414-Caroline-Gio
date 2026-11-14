@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define MUX_S0 14 
-#define MUX_s1 15
+#define MUX_S1 15
 #define MUX_SIG 27
 #define MUX_ADC 1
 
