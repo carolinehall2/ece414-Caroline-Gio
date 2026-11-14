@@ -1,4 +1,4 @@
-/*
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -269,9 +269,9 @@ int main(void) {
         pio_sm_put_blocking(pio, sm, audio_word);
     }
 }
-*/
 
 
+/*
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
@@ -360,4 +360,4 @@ int main(void) {
         sleep_ms(250);
     }
 }
-
+*/
