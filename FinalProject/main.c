@@ -248,6 +248,7 @@ int main(void) {
     printf("I2S enabled: GP10/GP11/GP12\n");
     printf("PHONE AUDIO RUNNING\n");
     fflush(stdout);
+    int32_t bass_low = 0; 
 
     //audio loop
     while (true) {
@@ -256,10 +257,28 @@ int main(void) {
         dc_bias +=
             ((int32_t)raw * 1024 - dc_bias) / 1024;
 
-        int32_t centered =
-            (int32_t)raw - (dc_bias / 1024);
+        // Remove DC bias
+int32_t centered =
+    (int32_t)raw - (dc_bias / 1024);
 
-        int32_t amplified = centered * AUDIO_GAIN;
+    // Extract low frequencies using a low-pass filter
+    bass_low += ((centered * 256) - bass_low) / 32;
+
+    // Convert filtered signal back to normal scale
+    int32_t low = bass_low / 256;
+
+    // Convert bass knob into a signed adjustment
+    // 0 = maximum cut
+    // 2048 = neutral
+    // 4095 = maximum boost
+    int32_t bass_adjust = (int32_t)bass_val - 2048;
+
+    // Add or subtract low frequencies
+    int32_t bass_processed =
+    centered + (low * bass_adjust) / 2048;
+
+    // Amplify the processed audio
+    int32_t amplified = bass_processed * AUDIO_GAIN;
         // Apply volume potentiometer
         amplified = (amplified * volume_val) / 4095;
 
