@@ -292,6 +292,14 @@ if (bass_adjust >= 0) {
         centered + (low * bass_adjust) / 2048;
 }
 
+        int32_t amplified =
+            bass_processed * AUDIO_GAIN;
+
+        // Apply volume potentiometer
+        amplified =
+            (int32_t)(((int64_t)amplified *
+            volume_val) / 4095);
+
         if (amplified > 32767) {
             amplified = 32767;
         }
