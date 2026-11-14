@@ -18,12 +18,7 @@ uint16_t mid_val = 2048;
 uint16_t treble_val = 2048;
 
 // FSM states
-static enum {
-    SELECT,
-    SETTLE,
-    READ,
-    UPDATE
-} state;
+static enum {SELECT, SETTLE,READ, UPDATE} state;
 
 static uint8_t channel;
 static uint32_t deadline;
