@@ -1,4 +1,4 @@
-
+/*
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -269,3 +269,95 @@ int main(void) {
         pio_sm_put_blocking(pio, sm, audio_word);
     }
 }
+*/
+
+
+#include <stdio.h>
+#include "pico/stdlib.h"
+#include "hardware/adc.h"
+
+// Multiplexer select pins
+#define MUX_S0 14
+#define MUX_S1 15
+
+// Multiplexer analog output
+#define MUX_SIG 27
+#define MUX_ADC 1
+
+// Select one of the four potentiometers
+void select_knob(uint8_t channel) {
+
+    gpio_put(MUX_S0, channel & 0x01);
+    gpio_put(MUX_S1, (channel >> 1) & 0x01);
+
+    // Allow the multiplexer output to settle
+    sleep_us(50);
+}
+
+// Read a potentiometer
+uint16_t read_knob(uint8_t channel) {
+
+    select_knob(channel);
+
+    adc_select_input(MUX_ADC);
+
+    // Discard first reading after switching
+    adc_read();
+
+    // Average 8 readings for stability
+    uint32_t sum = 0;
+
+    for (int i = 0; i < 8; i++) {
+        sum += adc_read();
+    }
+
+    return sum / 8;
+}
+
+int main(void) {
+
+    stdio_init_all();
+    sleep_ms(2000);
+
+    printf("POTENTIOMETER WIRING TEST\n");
+    printf("-------------------------\n");
+
+    // Initialize multiplexer select pins
+    gpio_init(MUX_S0);
+    gpio_set_dir(MUX_S0, GPIO_OUT);
+
+    gpio_init(MUX_S1);
+    gpio_set_dir(MUX_S1, GPIO_OUT);
+
+    gpio_put(MUX_S0, 0);
+    gpio_put(MUX_S1, 0);
+
+    // Initialize ADC
+    adc_init();
+
+    adc_gpio_init(MUX_SIG);
+    adc_select_input(MUX_ADC);
+
+    printf("MUX S0: GP14\n");
+    printf("MUX S1: GP15\n");
+    printf("MUX SIG: GP27\n\n");
+
+    while (true) {
+
+        // Read all four potentiometers
+        uint16_t volume = read_knob(0);
+        uint16_t bass   = read_knob(1);
+        uint16_t mid    = read_knob(2);
+        uint16_t treble = read_knob(3);
+
+        // Display readings in Serial Monitor
+        printf("Volume: %4u | Bass: %4u | "
+               "Mid: %4u | Treble: %4u\n",
+               volume, bass, mid, treble);
+
+        fflush(stdout);
+
+        sleep_ms(250);
+    }
+}
+
