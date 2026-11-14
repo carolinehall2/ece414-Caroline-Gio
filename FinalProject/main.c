@@ -214,6 +214,12 @@ int main(void) {
     fflush(stdout);
 
     setup_audio_input();
+    // Initialize shared system state
+    system_state_init();
+
+    // Initialize potentiometers
+    knob_fsm_init();
+
     sleep_ms(100);
 
     uint32_t bias_sum = 0;
@@ -254,6 +260,8 @@ int main(void) {
             (int32_t)raw - (dc_bias / 1024);
 
         int32_t amplified = centered * AUDIO_GAIN;
+        // Apply volume potentiometer
+        amplified = (amplified * volume_val) / 4095;
 
         if (amplified > 32767) {
             amplified = 32767;
@@ -270,5 +278,8 @@ int main(void) {
 
         pio_sm_put_blocking(pio, sm, audio_word);
         pio_sm_put_blocking(pio, sm, audio_word);
+
+        // Run one step of the potentiometer FSM
+        knob_fsm_tick();
     }
 }
