@@ -30,7 +30,7 @@
 #define AUDIO_INPUT_PIN 26
 #define AUDIO_ADC_CHANNEL 0
 
-#define AUDIO_GAIN 16
+#define AUDIO_GAIN 32
 
 //Write to registers
 
@@ -262,25 +262,35 @@ int32_t centered =
     (int32_t)raw - (dc_bias / 1024);
 
     // Extract low frequencies using a low-pass filter
-    bass_low += ((centered * 256) - bass_low) / 32;
+    // ======================================
+// BASS CONTROL
+// ======================================
 
-    // Convert filtered signal back to normal scale
-    int32_t low = bass_low / 256;
+// Extract bass frequencies
+bass_low +=
+    ((centered * 256) - bass_low) / 22;
 
-    // Convert bass knob into a signed adjustment
-    // 0 = maximum cut
-    // 2048 = neutral
-    // 4095 = maximum boost
-    int32_t bass_adjust = (int32_t)bass_val - 2048;
+int32_t low = bass_low / 256;
 
-    // Add or subtract low frequencies
-    int32_t bass_processed =
-    centered + (low * bass_adjust) / 2048;
+// Bass knob: -2048 to +2047
+int32_t bass_adjust =
+    (int32_t)bass_val - 2048;
 
-    // Amplify the processed audio
-    int32_t amplified = bass_processed * AUDIO_GAIN;
-        // Apply volume potentiometer
-        amplified = (amplified * volume_val) / 4095;
+// Increase bass boost strength
+int32_t bass_processed;
+
+if (bass_adjust >= 0) {
+
+    // Stronger bass boost
+    bass_processed =
+        centered + (low * bass_adjust * 3) / 2048;
+
+} else {
+
+    // Reduce bass frequencies
+    bass_processed =
+        centered + (low * bass_adjust) / 2048;
+}
 
         if (amplified > 32767) {
             amplified = 32767;
