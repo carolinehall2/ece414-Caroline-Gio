@@ -18,6 +18,7 @@ target_sources(dj_board PRIVATE
     ts_lcd.c        
     TFTMaster.c
     glcdfont.c
+    system_state.c
 )
 
 # Enable USB serial output, disable UART
