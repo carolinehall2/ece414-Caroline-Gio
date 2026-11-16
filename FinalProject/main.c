@@ -2,38 +2,29 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
-
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
 #include "hardware/pio_instructions.h"
 #include "hardware/adc.h"
-
 #include "audio_i2s.pio.h"
-
 #include "knob_fsm.h"
 #include "system_state.h"
 
 //Define Pins
-
 #define WM8960_ADDR 0x1A
 #define SAMPLE_RATE 48000
-
 #define SDA_PIN 4
 #define SCL_PIN 5
-
 #define BCLK_PIN 10
 #define LRCLK_PIN 11
 #define DATA_PIN 12
-
 #define AUDIO_INPUT_PIN 26
 #define AUDIO_ADC_CHANNEL 0
-
 #define AUDIO_GAIN 32
 
 //Write to registers
-
 static bool wm_write(uint8_t reg, uint16_t val) {
 
     uint8_t data[2] = {
@@ -125,12 +116,9 @@ static void setup_i2s(PIO pio, uint sm) {
     pio_gpio_init(pio, BCLK_PIN);
     pio_gpio_init(pio, LRCLK_PIN);
     pio_gpio_init(pio, DATA_PIN);
-
     sm_config_set_sideset_pins(&c, BCLK_PIN);
     sm_config_set_out_pins(&c, DATA_PIN, 1);
-
     sm_config_set_out_shift(&c, false, true, 32);
-    
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 
     //clock divider
@@ -139,12 +127,9 @@ static void setup_i2s(PIO pio, uint sm) {
         (SAMPLE_RATE * 128.0f);
 
     sm_config_set_clkdiv(&c, divider);
-
     pio_sm_init(pio, sm, offset, &c);
-
     pio_sm_set_consecutive_pindirs(
-        pio, sm, BCLK_PIN, 3, true
-    );
+        pio, sm, BCLK_PIN, 3, true);
 
     pio_sm_exec(
         pio,
