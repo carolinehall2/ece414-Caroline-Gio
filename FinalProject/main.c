@@ -51,10 +51,6 @@ static bool wm_write(uint8_t reg, uint16_t val) {
     );
 
     if (result != 2) {
-        printf("FAIL: register %u, result %d\n",
-               reg, result);
-
-        fflush(stdout);
         return false;
     }
 
@@ -166,9 +162,6 @@ static void setup_audio_input(void) {
 
     adc_gpio_init(AUDIO_INPUT_PIN);
     adc_select_input(AUDIO_ADC_CHANNEL);
-
-    printf("Audio input configured on GP26\n");
-    fflush(stdout);
 }
 
 
@@ -176,9 +169,6 @@ int main(void) {
 
     stdio_init_all();
     sleep_ms(2000);
-
-    printf("STARTING PHONE AUDIO PLAYBACK\n");
-    fflush(stdout);
 
     i2c_init(i2c0, 100000);
 
@@ -188,14 +178,8 @@ int main(void) {
     gpio_pull_up(SDA_PIN);
     gpio_pull_up(SCL_PIN);
 
-    printf("I2C configured on GP%d/GP%d\n",
-           SDA_PIN, SCL_PIN);
-
     fflush(stdout);
 
-
-    printf("Initializing WM8960...\n");
-    fflush(stdout);
 
     bool codec_ready = wm_init();
 
@@ -203,15 +187,10 @@ int main(void) {
 
         while (true) {
 
-            printf("ERROR: WM8960 initialization failed\n");
-            fflush(stdout);
-
             sleep_ms(2000);
         }
     }
 
-    printf("WM8960 register writes successful\n");
-    fflush(stdout);
 
     setup_audio_input();
     // Initialize shared system state
@@ -231,8 +210,6 @@ int main(void) {
 
     int32_t initial_bias = bias_sum / 256;
 
-    printf("ADC bias: %ld\n", (long)initial_bias);
-    fflush(stdout);
 
     int32_t dc_bias = initial_bias * 1024;
 
@@ -245,9 +222,6 @@ int main(void) {
     pio_sm_put_blocking(pio, sm, 0);
     pio_sm_set_enabled(pio, sm, true);
 
-    printf("I2S enabled: GP10/GP11/GP12\n");
-    printf("PHONE AUDIO RUNNING\n");
-    fflush(stdout);
     int32_t bass_low = 0; 
 
     //audio loop
@@ -256,38 +230,28 @@ int main(void) {
 
         dc_bias +=
             ((int32_t)raw * 1024 - dc_bias) / 1024;
-
-        // Remove DC bias
 int32_t centered =
     (int32_t)raw - (dc_bias / 1024);
 
-    // Extract low frequencies using a low-pass filter
-    // ======================================
-// BASS CONTROL
-// ======================================
 
-// Extract bass frequencies
 bass_low +=
     ((centered * 256) - bass_low) / 22;
 
 int32_t low = bass_low / 256;
 
-// Bass knob: -2048 to +2047
+
 int32_t bass_adjust =
     (int32_t)bass_val - 2048;
 
-// Increase bass boost strength
 int32_t bass_processed;
 
 if (bass_adjust >= 0) {
 
-    // Stronger bass boost
     bass_processed =
         centered + (low * bass_adjust * 3) / 2048;
 
 } else {
 
-    // Reduce bass frequencies
     bass_processed =
         centered + (low * bass_adjust) / 2048;
 }
@@ -295,7 +259,6 @@ if (bass_adjust >= 0) {
         int32_t amplified =
             bass_processed * AUDIO_GAIN;
 
-        // Apply volume potentiometer
         amplified =
             (int32_t)(((int64_t)amplified *
             volume_val) / 4095);
@@ -316,7 +279,6 @@ if (bass_adjust >= 0) {
         pio_sm_put_blocking(pio, sm, audio_word);
         pio_sm_put_blocking(pio, sm, audio_word);
 
-        // Run one step of the potentiometer FSM
         knob_fsm_tick();
     }
 }
