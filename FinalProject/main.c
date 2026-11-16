@@ -1,31 +1,24 @@
-
 #include <stdint.h>
 #include <stdbool.h>
-
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
 #include "hardware/pio_instructions.h"
 #include "hardware/adc.h"
-
 #include "audio_i2s.pio.h"
 #include "knob_fsm.h"
 #include "system_state.h"
 
 #define WM8960_ADDR 0x1A
 #define SAMPLE_RATE 48000
-
 #define SDA_PIN 4
 #define SCL_PIN 5
-
 #define BCLK_PIN 10
 #define LRCLK_PIN 11
 #define DATA_PIN 12
-
 #define AUDIO_INPUT_PIN 26
 #define AUDIO_ADC_CHANNEL 0
-
 #define AUDIO_GAIN 32
 
 static bool wm_write(uint8_t reg, uint16_t val) {
