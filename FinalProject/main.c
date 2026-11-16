@@ -1,61 +1,51 @@
 
-#include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
 #include "hardware/pio_instructions.h"
 #include "hardware/adc.h"
+
 #include "audio_i2s.pio.h"
 #include "knob_fsm.h"
 #include "system_state.h"
 
-//Define Pins
 #define WM8960_ADDR 0x1A
 #define SAMPLE_RATE 48000
+
 #define SDA_PIN 4
 #define SCL_PIN 5
+
 #define BCLK_PIN 10
 #define LRCLK_PIN 11
 #define DATA_PIN 12
+
 #define AUDIO_INPUT_PIN 26
 #define AUDIO_ADC_CHANNEL 0
+
 #define AUDIO_GAIN 32
 
-//Write to registers
 static bool wm_write(uint8_t reg, uint16_t val) {
-
     uint8_t data[2] = {
         (uint8_t)((reg << 1) | ((val >> 8) & 1)),
         (uint8_t)(val & 0xFF)
     };
 
     int result = i2c_write_timeout_us(
-        i2c0,
-        WM8960_ADDR,
-        data,
-        2,
-        false,
-        100000
+        i2c0, WM8960_ADDR,
+        data, 2, false, 100000
     );
 
-    if (result != 2) {
-        return false;
-    }
-
-    return true;
+    return result == 2;
 }
 
 #define W(reg, val) \
     do { if (!wm_write(reg, val)) return false; } while (0)
 
-//initialize
-
 static bool wm_init(void) {
-
-    //Reset
     W(15, 0x000);
     sleep_ms(20);
 
@@ -71,11 +61,9 @@ static bool wm_init(void) {
     W(26, 0x001);
     sleep_ms(15);
 
-    //clocks and I2S
     W(4, 0x005);
-    W(7, 0x00A);
+    W(7, 0x002);
     W(8, 0x1C0);
-
 
     W(5, 0x000);
     W(10, 0x0FF);
@@ -86,9 +74,9 @@ static bool wm_init(void) {
 
     W(47, 0x018);
 
-    //volume
     W(40, 0x070);
     W(41, 0x170);
+
     W(2, 0x079);
     W(3, 0x179);
 
@@ -102,9 +90,7 @@ static bool wm_init(void) {
 
 #undef W
 
-//audio output
 static void setup_i2s(PIO pio, uint sm) {
-
     uint offset = pio_add_program(
         pio, &audio_i2s_program
     );
@@ -112,49 +98,44 @@ static void setup_i2s(PIO pio, uint sm) {
     pio_sm_config c =
         audio_i2s_program_get_default_config(offset);
 
-    //i2s pins
     pio_gpio_init(pio, BCLK_PIN);
     pio_gpio_init(pio, LRCLK_PIN);
     pio_gpio_init(pio, DATA_PIN);
+
     sm_config_set_sideset_pins(&c, BCLK_PIN);
     sm_config_set_out_pins(&c, DATA_PIN, 1);
     sm_config_set_out_shift(&c, false, true, 32);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 
-    //clock divider
     float divider =
         (float)clock_get_hz(clk_sys) /
-        (SAMPLE_RATE * 128.0f);
+        (SAMPLE_RATE * 64.0f);
 
     sm_config_set_clkdiv(&c, divider);
+
     pio_sm_init(pio, sm, offset, &c);
+
     pio_sm_set_consecutive_pindirs(
-        pio, sm, BCLK_PIN, 3, true);
+        pio, sm, BCLK_PIN, 3, true
+    );
+
+    pio_sm_set_pins(pio, sm, 0);
 
     pio_sm_exec(
-        pio,
-        sm,
+        pio, sm,
         pio_encode_jmp(
             offset + audio_i2s_offset_entry_point
         )
     );
 }
 
-//phone input
 static void setup_audio_input(void) {
-
     adc_init();
-
     adc_gpio_init(AUDIO_INPUT_PIN);
     adc_select_input(AUDIO_ADC_CHANNEL);
 }
 
-
 int main(void) {
-
-    stdio_init_all();
-    sleep_ms(2000);
-
     i2c_init(i2c0, 100000);
 
     gpio_set_function(SDA_PIN, GPIO_FUNC_I2C);
@@ -163,27 +144,17 @@ int main(void) {
     gpio_pull_up(SDA_PIN);
     gpio_pull_up(SCL_PIN);
 
-    fflush(stdout);
-
-
-    bool codec_ready = wm_init();
-
-    if (!codec_ready) {
-
+    if (!wm_init()) {
         while (true) {
-
             sleep_ms(2000);
         }
     }
 
-
     setup_audio_input();
-    // Initialize shared system state
     system_state_init();
-
-    // Initialize potentiometers
     knob_fsm_init();
 
+    adc_select_input(AUDIO_ADC_CHANNEL);
     sleep_ms(100);
 
     uint32_t bias_sum = 0;
@@ -194,8 +165,6 @@ int main(void) {
     }
 
     int32_t initial_bias = bias_sum / 256;
-
-
     int32_t dc_bias = initial_bias * 1024;
 
     PIO pio = pio0;
@@ -205,48 +174,48 @@ int main(void) {
 
     pio_sm_put_blocking(pio, sm, 0);
     pio_sm_put_blocking(pio, sm, 0);
+
     pio_sm_set_enabled(pio, sm, true);
 
-    int32_t bass_low = 0; 
+    int32_t bass_low = 0;
 
-    //audio loop
     while (true) {
         uint16_t raw = adc_read();
 
         dc_bias +=
             ((int32_t)raw * 1024 - dc_bias) / 1024;
-int32_t centered =
-    (int32_t)raw - (dc_bias / 1024);
 
+        int32_t centered =
+            (int32_t)raw - (dc_bias / 1024);
 
-bass_low +=
-    ((centered * 256) - bass_low) / 22;
+        bass_low +=
+            ((centered * 256) - bass_low) / 22;
 
-int32_t low = bass_low / 256;
+        int32_t low = bass_low / 256;
 
+        int32_t bass_adjust =
+            (int32_t)bass_val - 2048;
 
-int32_t bass_adjust =
-    (int32_t)bass_val - 2048;
+        int32_t bass_processed;
 
-int32_t bass_processed;
-
-if (bass_adjust >= 0) {
-
-    bass_processed =
-        centered + (low * bass_adjust * 3) / 2048;
-
-} else {
-
-    bass_processed =
-        centered + (low * bass_adjust) / 2048;
-}
+        if (bass_adjust >= 0) {
+            bass_processed =
+                centered +
+                (low * bass_adjust * 3) / 2048;
+        } else {
+            bass_processed =
+                centered +
+                (low * bass_adjust) / 2048;
+        }
 
         int32_t amplified =
             bass_processed * AUDIO_GAIN;
 
         amplified =
-            (int32_t)(((int64_t)amplified *
-            volume_val) / 4095);
+            (int32_t)(
+                ((int64_t)amplified * volume_val)
+                / 4095
+            );
 
         if (amplified > 32767) {
             amplified = 32767;
@@ -257,13 +226,15 @@ if (bass_adjust >= 0) {
         }
 
         int16_t sample = (int16_t)amplified;
+        uint16_t audio16 = (uint16_t)sample;
 
-        uint32_t audio_word =
-            ((uint32_t)(uint16_t)sample) << 16;
+        uint32_t stereo =
+            ((uint32_t)audio16 << 16) |
+            (uint32_t)audio16;
 
-        pio_sm_put_blocking(pio, sm, audio_word);
-        pio_sm_put_blocking(pio, sm, audio_word);
+        pio_sm_put_blocking(pio, sm, stereo);
 
         knob_fsm_tick();
     }
 }
+
