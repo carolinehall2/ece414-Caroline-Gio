@@ -103,26 +103,27 @@ void pioPinHandler(){ //The PIO interrupt handler
 
 //Function to intialize all the hardware associated with the TFT
 void tft_init_hw(void){
-	_width = ILI9340_TFTWIDTH;
-	_height = ILI9340_TFTHEIGHT;
+    _width = ILI9340_TFTWIDTH;
+    _height = ILI9340_TFTHEIGHT;
   
-	gpio_init(CS); //Initialize the CS pin as GPIO 
-    gpio_set_dir(CS, GPIO_OUT); //Set the pin direction as output
-    gpio_put(CS, 1); //Drive CS high
-	
-	gpio_init(RST); //Initialize the RST pin as GPIO 
-	gpio_set_dir(RST, GPIO_OUT); //Set the pin direction as output
-	
-	gpio_init(DC); //Initialize the DC pin as GPIO
-	gpio_set_dir(DC, GPIO_OUT); //Set the pin direction as output
-	
-	offset = pio_add_program(spi.pio, &spi_cpha0_cs_program); //Attempt to load the program
-    pio_spi_cs_init(spi.pio, spi.sm, offset, 8, 1, false, false, SCK, MOSI); //Initialize the SPI program
-	pio_interrupt_clear(spi.pio, 0); //Clear a particular PIO interrupt
-    pio_set_irq0_source_enabled(spi.pio, PIO_INTR_SM0_LSB, true); //Enable/Disable a single source on a PIO's IRQ 0
-	irq_set_exclusive_handler(PIO0_IRQ_0, pioPinHandler); //Set an exclusive interrupt handler for an interrupt on the executing core
-	irq_set_enabled(PIO0_IRQ_0, true); //Enable or disable a specific interrupt on the executing core
-	sleep_ms(500); //Sleep for 500ms
+    gpio_init(CS); 
+    gpio_set_dir(CS, GPIO_OUT); 
+    gpio_put(CS, 1); 
+    
+    gpio_init(RST); 
+    gpio_set_dir(RST, GPIO_OUT); 
+    
+    gpio_init(DC); 
+    gpio_set_dir(DC, GPIO_OUT); 
+    
+    offset = pio_add_program(spi.pio, &spi_cpha0_cs_program); 
+    // FIXED: SPI clock divider set to 8.0f for breadboard stability
+    pio_spi_cs_init(spi.pio, spi.sm, offset, 8, 8.0f, false, false, SCK, MOSI); 
+    pio_interrupt_clear(spi.pio, 0); 
+    pio_set_irq0_source_enabled(spi.pio, PIO_INTR_SM0_LSB, true); 
+    irq_set_exclusive_handler(PIO0_IRQ_0, pioPinHandler); 
+    irq_set_enabled(PIO0_IRQ_0, true); 
+    sleep_ms(500); 
 }
 
 static inline void _rst_low(){ //Function to set the RST pin low

@@ -45,14 +45,15 @@
 #ifndef _TFT_MASTER_H_
 #define _TFT_MASTER_H_
 
-#define CS 18
+#define CS 17
+#define SCK 18
 #define MOSI 19
-#define SCK 17
-#define DC 16
-#define RST 20
+#define DC 20
+#define RST 16
 
 #define ILI9340_TFTWIDTH  240
 #define ILI9340_TFTHEIGHT 320
+// ... keep the rest of your color and command definitions exactly as they are
 
 #define ILI9340_NOP     0x00
 #define ILI9340_SWRESET 0x01

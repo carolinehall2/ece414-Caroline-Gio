@@ -5,10 +5,10 @@
 // Define MUX Pins
 #define S0 14
 #define S1 15
-#define S2 16
-#define ADC_PIN 26
+#define S2 13       // Moved off GPIO 16 (TFT RST)
+#define ADC_PIN 28  // Moved off GPIO 26 (Touch X-)
 
-// global variables to hold the knob values
+// Global variables to hold the knob values
 uint16_t volume_val = 0;
 uint16_t bass_val   = 0;
 uint16_t mid_val    = 0;
@@ -27,7 +27,6 @@ void set_mux(int ch) {
 void knob_fsm_init(void) {
     adc_init();
     adc_gpio_init(ADC_PIN);
-    adc_select_input(0); // ADC0
 
     gpio_init(S0);
     gpio_init(S1);
@@ -40,7 +39,9 @@ void knob_fsm_init(void) {
 }
 
 void knob_fsm_tick(void) {
-    // State Transitions & Actions
+    // Re-select ADC2 every tick because ts_lcd switches to ADC0/ADC1
+    adc_select_input(2);
+
     switch (knob_state) {
         case READ_VOL:
             set_mux(0);
