@@ -15,10 +15,11 @@ pico_generate_pio_header(dj_board ${CMAKE_CURRENT_LIST_DIR}/audio_i2s.pio)
 target_sources(dj_board PRIVATE 
     main.c
     knob_fsm.c
-    ts_lcd.c        
+    system_state.c
+    display_fsm.c
+    ts_lcd.c
     TFTMaster.c
     glcdfont.c
-    system_state.c
 )
 
 # Enable USB serial output, disable UART
