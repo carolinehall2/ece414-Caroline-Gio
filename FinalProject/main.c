@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "pico/stdlib.h"
+#include "pico/multicore.h"
 #include "hardware/i2c.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
@@ -10,6 +11,8 @@
 #include "knob_fsm.h"
 #include "system_state.h"
 #include "ts_lcd.h"
+#include "display_fsm.h"
+#include "TFTMaster.h"
 
 #define WM8960_ADDR 0x1A
 #define SAMPLE_RATE 48000
@@ -28,12 +31,10 @@ static bool wm_write(uint8_t reg, uint16_t val) {
         (uint8_t)(val & 0xFF)
     };
 
-    int result = i2c_write_timeout_us(
+    return i2c_write_timeout_us(
         i2c0, WM8960_ADDR,
         data, 2, false, 100000
-    );
-
-    return result == 2;
+    ) == 2;
 }
 
 #define W(reg, val) \
@@ -65,7 +66,6 @@ static bool wm_init(void) {
 
     W(34, 0x100);
     W(37, 0x100);
-
     W(47, 0x018);
 
     W(40, 0x070);
@@ -129,6 +129,84 @@ static void setup_audio_input(void) {
     adc_select_input(AUDIO_ADC_CHANNEL);
 }
 
+static void toggle_effect(uint8_t effect) {
+    switch (effect) {
+        case 0:
+            g_state.bass_boost = !g_state.bass_boost;
+            break;
+
+        case 1:
+            g_state.bitcrusher = !g_state.bitcrusher;
+            break;
+
+        case 2:
+            g_state.vocal_iso = !g_state.vocal_iso;
+            break;
+
+        case 3:
+            g_state.mute = !g_state.mute;
+            break;
+
+        default:
+            return;
+    }
+
+    g_state.fx_dirty = true;
+}
+
+static void update_effect_indicators(void) {
+    static bool previous[4] = {
+        false, false, false, false
+    };
+
+    bool current[4] = {
+        g_state.bass_boost,
+        g_state.bitcrusher,
+        g_state.vocal_iso,
+        g_state.mute
+    };
+
+    const int positions[4] = {
+        15, 90, 165, 240
+    };
+
+    for (int i = 0; i < 4; i++) {
+        if (current[i] != previous[i]) {
+            uint16_t color = current[i]
+                ? ILI9340_WHITE
+                : ILI9340_BLACK;
+
+            tft_drawRect(
+                positions[i] + 2,
+                182,
+                61,
+                36,
+                color
+            );
+
+            previous[i] = current[i];
+        }
+    }
+}
+
+static void display_core(void) {
+    display_fsm_init();
+
+    uint32_t last_display = time_us_32();
+
+    while (true) {
+        uint32_t now = time_us_32();
+
+        if ((uint32_t)(now - last_display) >= 33333u) {
+            last_display = now;
+            display_fsm_tick();
+            update_effect_indicators();
+        }
+
+        sleep_ms(1);
+    }
+}
+
 int main(void) {
     i2c_init(i2c0, 100000);
 
@@ -162,7 +240,7 @@ int main(void) {
     int32_t initial_bias = bias_sum / 256;
     int32_t dc_bias = initial_bias * 1024;
 
-    PIO pio = pio0;
+    PIO pio = pio1;
     uint sm = pio_claim_unused_sm(pio, true);
 
     setup_i2s(pio, sm);
@@ -172,9 +250,15 @@ int main(void) {
 
     pio_sm_set_enabled(pio, sm, true);
 
+    multicore_launch_core1(display_core);
+
     int32_t bass_low = 0;
-    uint32_t next_touch_us = time_us_32();
-    bool touch_pressed = false;
+
+    uint32_t last_touch = time_us_32();
+    uint32_t last_press = 0;
+
+    bool touch_was_down = false;
+
     uint16_t touch_x = 0;
     uint16_t touch_y = 0;
 
@@ -207,6 +291,10 @@ int main(void) {
                 (low * bass_adjust) / 2048;
         }
 
+        if (g_state.bass_boost) {
+            bass_processed += low;
+        }
+
         int32_t amplified =
             bass_processed * AUDIO_GAIN;
 
@@ -215,6 +303,15 @@ int main(void) {
                 ((int64_t)amplified * volume_val)
                 / 4095
             );
+
+        if (g_state.bitcrusher) {
+            amplified =
+                (amplified / 2048) * 2048;
+        }
+
+        if (g_state.mute) {
+            amplified = 0;
+        }
 
         if (amplified > 32767) {
             amplified = 32767;
@@ -237,13 +334,42 @@ int main(void) {
 
         uint32_t now = time_us_32();
 
-        if ((int32_t)(now - next_touch_us) >= 0) {
-            next_touch_us = now + 100000u;
+        if ((uint32_t)(now - last_touch) >= 50000u) {
+            last_touch = now;
 
-            touch_pressed = get_ts_lcd(&touch_x, &touch_y);
+            bool pressed =
+                get_ts_lcd(&touch_x, &touch_y);
 
-        knob_fsm_restart_scan();
-}
+            knob_fsm_restart_scan();
+
+            if (pressed &&
+                !touch_was_down &&
+                (uint32_t)(now - last_press) >= 300000u) {
+
+                uint16_t screen_x = touch_y;
+                int32_t screen_y = 240 - (int32_t)touch_x;
+
+                if (screen_y >= 170 && screen_y <= 230) {
+                    if (screen_x >= 15 && screen_x <= 80) {
+                        toggle_effect(0);
+                        last_press = now;
+                    }
+                    else if (screen_x >= 90 && screen_x <= 155) {
+                        toggle_effect(1);
+                        last_press = now;
+                    }
+                    else if (screen_x >= 165 && screen_x <= 230) {
+                        toggle_effect(2);
+                        last_press = now;
+                    }
+                    else if (screen_x >= 240 && screen_x <= 305) {
+                        toggle_effect(3);
+                        last_press = now;
+                    }
+                }
+            }
+
+            touch_was_down = pressed;
+        }
     }
 }
-
