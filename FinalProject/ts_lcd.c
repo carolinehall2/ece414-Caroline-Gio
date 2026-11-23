@@ -2,104 +2,142 @@
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
 #include "hardware/gpio.h"
+#include "knob_fsm.h"
 
-// Hardware pin mappings from Lab 4 Manual 
-#define Y_MINUS 21 
-#define X_PLUS  22 
-#define X_MINUS 26 
-#define Y_PLUS  27 
-#define Z_THRESHOLD 400
+#define X_PLUS 6
+#define X_MINUS 7
+#define Y_PLUS 8
+#define Y_MINUS 9
 
-// Pico ADC channel mappings
-#define ADC_CH_X_MINUS 0 // GPIO 26 is ADC0
-#define ADC_CH_Y_PLUS  1 // GPIO 27 is ADC1
+#define TOUCH_X_CHANNEL 4
+#define TOUCH_Y_CHANNEL 5
 
-// Touchscreen parameters (
-#define ADC_MIN     400  // Typical raw ADC minimum
-#define ADC_MAX     3800 // Typical raw ADC maximum
-#define LCD_WIDTH   240
-#define LCD_HEIGHT  320
+#define LCD_WIDTH 240
+#define LCD_HEIGHT 320
+
+#define ADC_MIN 400
+#define ADC_MAX 3800
+
+static const uint touch_pins[] = {
+    X_PLUS, X_MINUS, Y_PLUS, Y_MINUS
+};
+
+static void release_touch_pins(void) {
+    for (int i = 0; i < 4; ++i) {
+        gpio_set_dir(touch_pins[i], GPIO_IN);
+        gpio_disable_pulls(touch_pins[i]);
+    }
+}
+
+static void select_mux(uint8_t channel) {
+    gpio_put(MUX_S0, channel & 1u);
+    gpio_put(MUX_S1, (channel >> 1) & 1u);
+    gpio_put(MUX_S2, (channel >> 2) & 1u);
+}
+
+static uint16_t read_touch_adc(uint8_t channel) {
+    select_mux(channel);
+
+    adc_select_input(MUX_ADC);
+    sleep_us(50);
+
+    (void)adc_read();
+    return adc_read();
+}
+
+static void restore_audio_adc(void) {
+    release_touch_pins();
+
+    select_mux(0);
+
+    adc_select_input(0);
+    (void)adc_read();
+}
+
+static uint16_t map_coordinate(
+    uint16_t raw,
+    uint16_t size
+) {
+    int32_t value =
+        ((int32_t)raw - ADC_MIN) *
+        (int32_t)(size - 1) /
+        (ADC_MAX - ADC_MIN);
+
+    if (value < 0)
+        value = 0;
+
+    if (value >= size)
+        value = size - 1;
+
+    return (uint16_t)value;
+}
 
 void ts_lcd_init(void) {
-    adc_init();
+    for (int i = 0; i < 4; ++i) {
+        gpio_init(touch_pins[i]);
+    }
 
+    release_touch_pins();
+    select_mux(0);
 }
 
 bool get_ts_lcd(uint16_t *px, uint16_t *py) {
-    uint16_t z1, z2, x_raw, y_raw;
+    if (px == NULL || py == NULL)
+        return false;
 
-    //  Read Pressure to   determine if the screen is currently touched
-    gpio_init(X_PLUS);
+    release_touch_pins();
+
+    gpio_put(X_PLUS, 1);
+    gpio_put(X_MINUS, 1);
+
     gpio_set_dir(X_PLUS, GPIO_OUT);
-    gpio_put(X_PLUS, 0);
+    gpio_set_dir(X_MINUS, GPIO_OUT);
 
-    gpio_init(Y_MINUS);
-    gpio_set_dir(Y_MINUS, GPIO_OUT);
-    gpio_put(Y_MINUS, 1);
+    gpio_pull_down(Y_PLUS);
+    gpio_pull_down(Y_MINUS);
 
-    adc_gpio_init(X_MINUS);
-    adc_gpio_init(Y_PLUS);
+    sleep_us(30);
 
-    adc_select_input(ADC_CH_X_MINUS);
-    z1 = adc_read();
-    
-    adc_select_input(ADC_CH_Y_PLUS);
-    z2 = adc_read();
+    bool touched =
+        gpio_get(Y_PLUS) || gpio_get(Y_MINUS);
 
-    int pressure = z1 + (4095 - z2);
+    release_touch_pins();
 
-    // If pressure is below threshold, screen is untouched
-    if (pressure < Z_THRESHOLD) {
+    if (!touched) {
+        restore_audio_adc();
         return false;
     }
 
-    // Read X-axis coordinate
-    gpio_init(X_MINUS);
-    gpio_set_dir(X_MINUS, GPIO_OUT);
+    gpio_put(X_PLUS, 1);
     gpio_put(X_MINUS, 0);
 
-    gpio_init(X_PLUS);
     gpio_set_dir(X_PLUS, GPIO_OUT);
-    gpio_put(X_PLUS, 1);
+    gpio_set_dir(X_MINUS, GPIO_OUT);
 
-    // Let Y- float
-    gpio_set_dir(Y_MINUS, GPIO_IN);
+    uint16_t x_raw =
+        read_touch_adc(TOUCH_X_CHANNEL);
 
-    adc_gpio_init(Y_PLUS);
-    adc_select_input(ADC_CH_Y_PLUS);
-    sleep_us(10); 
-    x_raw = adc_read();
+    release_touch_pins();
 
-    //Read Y-axis coordinate
-    gpio_init(Y_MINUS);
-    gpio_set_dir(Y_MINUS, GPIO_OUT);
+    gpio_put(Y_PLUS, 1);
     gpio_put(Y_MINUS, 0);
 
-    gpio_init(Y_PLUS);
     gpio_set_dir(Y_PLUS, GPIO_OUT);
-    gpio_put(Y_PLUS, 1);
+    gpio_set_dir(Y_MINUS, GPIO_OUT);
 
-    // Let X+ float
-    gpio_set_dir(X_PLUS, GPIO_IN);
+    uint16_t y_raw =
+        read_touch_adc(TOUCH_Y_CHANNEL);
 
-    adc_gpio_init(X_MINUS);
-    adc_select_input(ADC_CH_X_MINUS);
-    sleep_us(10); 
-    y_raw = adc_read();
+    restore_audio_adc();
 
-    int mapped_x = ((x_raw - ADC_MIN) * LCD_WIDTH) / (ADC_MAX - ADC_MIN);
-    int mapped_y = ((y_raw - ADC_MIN) * LCD_HEIGHT) / (ADC_MAX - ADC_MIN);
+    uint16_t x =
+        map_coordinate(x_raw, LCD_WIDTH);
 
-    mapped_x = LCD_WIDTH - mapped_x;
-    mapped_y = LCD_HEIGHT - mapped_y;
+    uint16_t y =
+        map_coordinate(y_raw, LCD_HEIGHT);
 
-    if (mapped_x < 0) mapped_x = 0;
-    if (mapped_x >= LCD_WIDTH) mapped_x = LCD_WIDTH - 1;
-    if (mapped_y < 0) mapped_y = 0;
-    if (mapped_y >= LCD_HEIGHT) mapped_y = LCD_HEIGHT - 1;
-
-    *px = (uint16_t)mapped_x;
-    *py = (uint16_t)mapped_y;
+    *px = LCD_WIDTH - 1 - x;
+    *py = LCD_HEIGHT - 1 - y;
 
     return true;
 }
