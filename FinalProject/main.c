@@ -9,6 +9,7 @@
 #include "audio_i2s.pio.h"
 #include "knob_fsm.h"
 #include "system_state.h"
+#include "ts_lcd.h"
 
 #define WM8960_ADDR 0x1A
 #define SAMPLE_RATE 48000
@@ -146,6 +147,7 @@ int main(void) {
     setup_audio_input();
     system_state_init();
     knob_fsm_init();
+    ts_lcd_init();
 
     adc_select_input(AUDIO_ADC_CHANNEL);
     sleep_ms(100);
@@ -171,6 +173,10 @@ int main(void) {
     pio_sm_set_enabled(pio, sm, true);
 
     int32_t bass_low = 0;
+    uint32_t next_touch_us = time_us_32();
+    bool touch_pressed = false;
+    uint16_t touch_x = 0;
+    uint16_t touch_y = 0;
 
     while (true) {
         uint16_t raw = adc_read();
@@ -228,6 +234,16 @@ int main(void) {
         pio_sm_put_blocking(pio, sm, stereo);
 
         knob_fsm_tick();
+
+        uint32_t now = time_us_32();
+
+        if ((int32_t)(now - next_touch_us) >= 0) {
+            next_touch_us = now + 100000u;
+
+            touch_pressed = get_ts_lcd(&touch_x, &touch_y);
+
+        knob_fsm_restart_scan();
+}
     }
 }
 
