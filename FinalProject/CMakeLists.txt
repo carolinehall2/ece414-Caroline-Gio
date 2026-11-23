@@ -35,6 +35,7 @@ target_link_libraries(dj_board PRIVATE
     hardware_i2c 
     hardware_clocks   
     pico_bootsel_via_double_reset
+    pico_multicore
 )
 
 pico_add_extra_outputs(dj_board)
