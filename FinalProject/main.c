@@ -334,7 +334,6 @@ int main(void) {
 
         uint32_t now = time_us_32();
 
-        /*
         if ((uint32_t)(now - last_touch) >= 50000u) {
             last_touch = now;
 
@@ -372,6 +371,5 @@ int main(void) {
 
             touch_was_down = pressed;
         }
-        */
     }
 }
