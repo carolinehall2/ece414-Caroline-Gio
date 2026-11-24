@@ -25,6 +25,8 @@
 #define AUDIO_ADC_CHANNEL 0
 #define AUDIO_GAIN 32
 
+stdio_init_all();
+
 static bool wm_write(uint8_t reg, uint16_t val) {
     uint8_t data[2] = {
         (uint8_t)((reg << 1) | ((val >> 8) & 1)),
@@ -337,10 +339,19 @@ int main(void) {
         if ((uint32_t)(now - last_touch) >= 50000u) {
             last_touch = now;
 
-            bool pressed =
-                get_ts_lcd(&touch_x, &touch_y);
+           bool pressed =
+    get_ts_lcd(&touch_x, &touch_y);
 
-            knob_fsm_restart_scan();
+knob_fsm_restart_scan();
+
+if (pressed && !touch_was_down) {
+    printf("TOUCH DETECTED: x=%u, y=%u\n",
+           touch_x, touch_y);
+}
+
+if (!pressed && touch_was_down) {
+    printf("TOUCH RELEASED\n");
+}
 
             if (pressed &&
                 !touch_was_down &&
