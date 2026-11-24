@@ -253,6 +253,9 @@ int main(void) {
     multicore_launch_core1(display_core);
 
     int32_t bass_low = 0;
+    int32_t upper_low = 0;
+    int32_t mid_smooth = 2048 * 256;
+    int32_t treble_smooth = 2048 * 256;
 
     uint32_t last_touch = time_us_32();
     uint32_t last_press = 0;
@@ -274,6 +277,22 @@ int main(void) {
 
         int32_t low = bass_low / 256;
 
+        upper_low +=
+            ((centered * 256) - upper_low) / 4;
+
+        int32_t upper = upper_low / 256;
+        int32_t mid_band = upper - low;
+        int32_t treble_band = centered - upper;
+
+        mid_smooth +=
+            (((int32_t)mid_val * 256) - mid_smooth) / 64;
+
+        treble_smooth +=
+            (((int32_t)treble_val * 256) - treble_smooth) / 64;
+
+        int32_t mid_adjust = (mid_smooth / 256) - 2048;
+        int32_t treble_adjust = (treble_smooth / 256) - 2048;
+
         int32_t bass_adjust =
             (int32_t)bass_val - 2048;
 
@@ -293,8 +312,12 @@ int main(void) {
             bass_processed += low;
         }
 
+        int32_t eq_processed = bass_processed;
+        eq_processed += (mid_band * mid_adjust) / 2048;
+        eq_processed += (treble_band * treble_adjust) / 2048;
+
         int32_t amplified =
-            bass_processed * AUDIO_GAIN;
+            eq_processed * AUDIO_GAIN;
 
         amplified =
             (int32_t)(
