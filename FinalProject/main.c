@@ -1,18 +1,3 @@
-#include "pico/stdlib.h"
-#include "display_fsm.h"
-
-int main(void) {
-    stdio_init_all();
-
-    sleep_ms(1000);
-
-    display_fsm_init();
-
-    while (true) {
-        sleep_ms(1000);
-    }
-}
-/*
 #include <stdint.h>
 #include <stdbool.h>
 #include "pico/stdlib.h"
@@ -388,4 +373,3 @@ int main(void) {
         }
     }
 }
-*/
