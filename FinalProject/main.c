@@ -257,8 +257,6 @@ int main(void) {
     uint32_t last_touch = time_us_32();
     uint32_t last_press = 0;
 
-    bool touch_was_down = false;
-
     uint16_t touch_x = 0;
     uint16_t touch_y = 0;
 
@@ -343,7 +341,6 @@ int main(void) {
             knob_fsm_restart_scan();
 
             if (pressed &&
-                !touch_was_down &&
                 (uint32_t)(now - last_press) >= 300000u) {
 
                 uint16_t screen_x = touch_y;
@@ -368,8 +365,6 @@ int main(void) {
                     }
                 }
             }
-
-            touch_was_down = pressed;
         }
     }
 }
