@@ -22,8 +22,8 @@
 #define ADC_MIN 400
 #define ADC_MAX 3800
 
-#define TOUCH_HIGH_MIN 250u
-#define TOUCH_LOW_MAX  3845u
+#define TOUCH_HIGH_MIN 60u
+#define TOUCH_LOW_MAX  4030u
 
 #define TOUCH_DEBUG 1
 
