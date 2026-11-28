@@ -82,15 +82,10 @@ static void setup_i2s(PIO pio, uint sm) {
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 
     float divider = (float)clock_get_hz(clk_sys) / (SAMPLE_RATE * 64.0f);
-
     sm_config_set_clkdiv(&c, divider);
-
     pio_sm_init(pio, sm, offset, &c);
-
     pio_sm_set_consecutive_pindirs(pio, sm, BCLK_PIN, 3, true);
-
     pio_sm_set_pins(pio, sm, 0);
-
     pio_sm_exec(pio, sm,pio_encode_jmp(offset + audio_i2s_offset_entry_point));
 }
 
@@ -105,19 +100,15 @@ static void toggle_effect(uint8_t effect) {
         case 0:
             g_state.bass_boost = !g_state.bass_boost;
             break;
-
         case 1:
             g_state.bitcrusher = !g_state.bitcrusher;
             break;
-
         case 2:
             g_state.vocal_iso = !g_state.vocal_iso;
             break;
-
         case 3:
             g_state.mute = !g_state.mute;
             break;
-
         default:
             return;
     }
@@ -127,11 +118,8 @@ static void toggle_effect(uint8_t effect) {
 
 static void update_effect_indicators(void) {
     static bool previous[4] = {false, false, false, false};
-
     bool current[4] = {g_state.bass_boost,g_state.bitcrusher,g_state.vocal_iso,g_state.mute};
-
     const int positions[4] = {15, 90, 165, 240};
-
     for (int i = 0; i < 4; i++) {
         if (current[i] != previous[i]) {uint16_t color = current[i] ? ILI9340_WHITE : ILI9340_BLACK;
             tft_drawRect(positions[i] + 2,182,61,36,color);
@@ -216,7 +204,6 @@ int main(void) {
         } else {
             bass_processed =centered +(low * bass_adjust) / 2048;
         }
-
         if (g_state.bass_boost) {
             bass_processed += low;
         }
@@ -242,11 +229,10 @@ int main(void) {
         int16_t sample = (int16_t)amplified;
         uint16_t audio16 = (uint16_t)sample;
         uint32_t stereo = ((uint32_t)audio16 << 16) | (uint32_t)audio16;
-
         pio_sm_put_blocking(pio, sm, stereo);
         knob_fsm_tick();
-
         uint32_t now = time_us_32();
+        
         if ((uint32_t)(now - last_touch) >= 50000u) {
             last_touch = now;
             bool pressed = get_ts_lcd(&touch_x, &touch_y);
