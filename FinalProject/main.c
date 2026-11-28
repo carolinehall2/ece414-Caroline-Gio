@@ -13,6 +13,7 @@
 #include "ts_lcd.h"
 #include "display_fsm.h"
 #include "TFTMaster.h"
+#include "audio_fsm.h"
 
 #define WM8960_ADDR 0x1A
 #define SAMPLE_RATE 48000
@@ -23,11 +24,10 @@
 #define DATA_PIN 12
 #define AUDIO_INPUT_PIN 26
 #define AUDIO_ADC_CHANNEL 0
-#define AUDIO_GAIN 32
 
 static bool wm_write(uint8_t reg, uint16_t val) {
-    uint8_t data[2] = {(uint8_t)((reg << 1) | ((val >> 8) & 1)),(uint8_t)(val & 0xFF)};
-
+    uint8_t data[2] = {(uint8_t)((reg << 1) | ((val >> 8) & 1)),(uint8_t)(val & 0xFF)
+    };
     return i2c_write_timeout_us(i2c0, WM8960_ADDR,data, 2, false, 100000) == 2;
 }
 
@@ -69,19 +69,16 @@ static bool wm_init(void) {
 
 static void setup_i2s(PIO pio, uint sm) {
     uint offset = pio_add_program(pio, &audio_i2s_program);
-
-    pio_sm_config c = audio_i2s_program_get_default_config(offset);
+    pio_sm_config c =audio_i2s_program_get_default_config(offset);
 
     pio_gpio_init(pio, BCLK_PIN);
     pio_gpio_init(pio, LRCLK_PIN);
     pio_gpio_init(pio, DATA_PIN);
-
     sm_config_set_sideset_pins(&c, BCLK_PIN);
     sm_config_set_out_pins(&c, DATA_PIN, 1);
     sm_config_set_out_shift(&c, false, true, 32);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
-
-    float divider = (float)clock_get_hz(clk_sys) / (SAMPLE_RATE * 64.0f);
+    float divider =(float)clock_get_hz(clk_sys) /(SAMPLE_RATE * 64.0f);
     sm_config_set_clkdiv(&c, divider);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_consecutive_pindirs(pio, sm, BCLK_PIN, 3, true);
@@ -100,15 +97,19 @@ static void toggle_effect(uint8_t effect) {
         case 0:
             g_state.bass_boost = !g_state.bass_boost;
             break;
+
         case 1:
             g_state.bitcrusher = !g_state.bitcrusher;
             break;
+
         case 2:
             g_state.vocal_iso = !g_state.vocal_iso;
             break;
+
         case 3:
             g_state.mute = !g_state.mute;
             break;
+
         default:
             return;
     }
@@ -118,10 +119,11 @@ static void toggle_effect(uint8_t effect) {
 
 static void update_effect_indicators(void) {
     static bool previous[4] = {false, false, false, false};
-    bool current[4] = {g_state.bass_boost,g_state.bitcrusher,g_state.vocal_iso,g_state.mute};
+    bool current[4] = {g_state.bass_boost,g_state.bitcrusher,g_state.vocal_iso, g_state.mute};
     const int positions[4] = {15, 90, 165, 240};
     for (int i = 0; i < 4; i++) {
-        if (current[i] != previous[i]) {uint16_t color = current[i] ? ILI9340_WHITE : ILI9340_BLACK;
+        if (current[i] != previous[i]) {
+            uint16_t color = current[i] ? ILI9340_WHITE: ILI9340_BLACK;
             tft_drawRect(positions[i] + 2,182,61,36,color);
             previous[i] = current[i];
         }
@@ -153,20 +155,12 @@ int main(void) {
             sleep_ms(2000);
         }
     }
+
     setup_audio_input();
     system_state_init();
     knob_fsm_init();
     ts_lcd_init();
-    adc_select_input(AUDIO_ADC_CHANNEL);
-    sleep_ms(100);
-    uint32_t bias_sum = 0;
-    for (int i = 0; i < 256; i++) {
-        bias_sum += adc_read();
-        sleep_us(20);
-    }
-
-    int32_t initial_bias = bias_sum / 256;
-    int32_t dc_bias = initial_bias * 1024;
+    audio_fsm_init();
     PIO pio = pio1;
     uint sm = pio_claim_unused_sm(pio, true);
     setup_i2s(pio, sm);
@@ -174,72 +168,22 @@ int main(void) {
     pio_sm_put_blocking(pio, sm, 0);
     pio_sm_set_enabled(pio, sm, true);
     multicore_launch_core1(display_core);
-    int32_t bass_low = 0;
-    int32_t upper_low = 0;
-    int32_t mid_smooth = 2048 * 256;
-    int32_t treble_smooth = 2048 * 256;
     uint32_t last_touch = time_us_32();
     uint32_t last_press = 0;
     uint16_t touch_x = 0;
     uint16_t touch_y = 0;
+
     while (true) {
-        uint16_t raw = adc_read();
-        dc_bias += ((int32_t)raw * 1024 - dc_bias) / 1024;
-        int32_t centered =(int32_t)raw - (dc_bias / 1024);
-        bass_low +=((centered * 256) - bass_low) / 22;
-        int32_t low = bass_low / 256;
-        upper_low +=((centered * 256) - upper_low) / 4;
-        int32_t upper = upper_low / 256;
-        int32_t mid_band = upper - low;
-        int32_t treble_band = centered - upper;
-        mid_smooth +=(((int32_t)mid_val * 256) - mid_smooth) / 64;
-        treble_smooth += (((int32_t)treble_val * 256) - treble_smooth) / 64;
-        int32_t mid_adjust = (mid_smooth / 256) - 2048;
-        int32_t treble_adjust = (treble_smooth / 256) - 2048;
-        int32_t bass_adjust = (int32_t)bass_val - 2048;
-        int32_t bass_processed;
-
-        if (bass_adjust >= 0) {
-            bass_processed = centered +(low * bass_adjust * 3) / 2048;
-        } else {
-            bass_processed =centered +(low * bass_adjust) / 2048;
-        }
-        if (g_state.bass_boost) {
-            bass_processed += low;
-        }
-        int32_t eq_processed = bass_processed;
-        eq_processed += (mid_band * mid_adjust) / 2048;
-        eq_processed += (treble_band * treble_adjust) / 2048;
-        int32_t amplified =eq_processed * AUDIO_GAIN;
-        amplified =(int32_t)(((int64_t)amplified * volume_val) / 4095);
-
-        if (g_state.bitcrusher) {
-            amplified =(amplified / 2048) * 2048;
-        }
-        if (g_state.mute) {
-            amplified = 0;
-        }
-        if (amplified > 32767) {
-            amplified = 32767;
-        }
-        if (amplified < -32768) {
-            amplified = -32768;
-        }
-
-        int16_t sample = (int16_t)amplified;
-        uint16_t audio16 = (uint16_t)sample;
-        uint32_t stereo = ((uint32_t)audio16 << 16) | (uint32_t)audio16;
-        pio_sm_put_blocking(pio, sm, stereo);
+        audio_fsm_tick(pio, sm);
         knob_fsm_tick();
         uint32_t now = time_us_32();
-        
         if ((uint32_t)(now - last_touch) >= 50000u) {
             last_touch = now;
-            bool pressed = get_ts_lcd(&touch_x, &touch_y);
+            bool pressed =get_ts_lcd(&touch_x, &touch_y);
             knob_fsm_restart_scan();
             if (pressed &&(uint32_t)(now - last_press) >= 300000u) {
                 uint16_t screen_x = touch_y;
-                int32_t screen_y = 240 - (int32_t)touch_x;
+                int32_t screen_y =240 - (int32_t)touch_x;
                 if (screen_y >= 170 && screen_y <= 230) {
                     if (screen_x >= 15 && screen_x <= 80) {
                         toggle_effect(0);
