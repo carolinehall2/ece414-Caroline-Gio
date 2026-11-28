@@ -3,7 +3,7 @@
 #include "knob_fsm.h"
 #include "display_fsm.h"
 
-// Effect status flags
+//status variables
 int bass_boost_on = 0;
 int bitcrusher_on = 0;
 int vocal_iso_on  = 0;
@@ -51,7 +51,7 @@ void display_fsm_init(void) {
 }
 
 void display_fsm_tick(void) {
-    // Map 0-4095 ADC values to 0-98 pixel height
+    //0-4095 ADC values to 0-98 pixel height
     int new_bass_h   = (bass_val * 98) / 4095;
     int new_mid_h    = (mid_val * 98) / 4095;
     int new_treble_h = (treble_val * 98) / 4095;
